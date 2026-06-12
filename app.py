@@ -86,6 +86,8 @@ with st.sidebar:
         nav_options.append("🛏️ Hotel & Booking")
     if "fnb" in st.session_state.active_modules:
         nav_options.append("🍽️ Food & Beverage")
+    if "email_ops" in st.session_state.active_modules:
+        nav_options.append("📨 Email Analytics")
         
     if role == "Super Admin":
         st.divider()
@@ -114,6 +116,10 @@ elif selected_page == "🎰 Casino Analytics":
 elif selected_page == "📈 Marketing & Attribution":
     import marketing
     marketing.render_marketing_module(supabase, profile['tenant_id'], prop_name)
+
+elif selected_page == "📨 Email Analytics":
+    import email_ops
+    email_ops.render_email_module(supabase, profile['tenant_id'], prop_name)
     
 else:
     st.title(selected_page)
