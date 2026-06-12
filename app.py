@@ -126,6 +126,14 @@ elif selected_page == "📢 PR Scorecard":
 elif selected_page == "📨 Email Analytics":
     import email_ops
     email_ops.render_email_module(supabase, profile['tenant_id'], prop_name)
+
+elif selected_page == "🛏️ Hotel & Booking":
+    import hotel
+    hotel.render_hotel_module(supabase, profile['tenant_id'], prop_name)
+
+elif selected_page == "🍽️ Food & Beverage":
+    import fnb
+    fnb.render_fnb_module(supabase, profile['tenant_id'], prop_name)
     
 else:
     st.title(selected_page)
