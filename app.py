@@ -102,9 +102,12 @@ if selected_page == "🏠 Home / Account":
     st.write("Select an active module from the sidebar to begin.")
     
 elif selected_page == "⚙️ Global SaaS Admin":
-    st.title("⚙️ Global SaaS Admin")
-    st.write("This is where you will add new properties and turn on their subscriptions.")
-    # Tomorrow, we will build out this page logic in a separate file and import it here.
+    import admin
+    admin.render_admin_page(supabase)
+    
+elif selected_page == "🎰 Casino Analytics":
+    import casino
+    casino.render_casino_module(supabase, profile['tenant_id'], prop_name)
     
 else:
     st.title(selected_page)
