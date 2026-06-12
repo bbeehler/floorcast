@@ -82,6 +82,8 @@ with st.sidebar:
         nav_options.append("🎰 Casino Analytics")
     if "marketing_pro" in st.session_state.active_modules:
         nav_options.append("📈 Marketing & Attribution")
+    if "pr_media" in st.session_state.active_modules:
+        nav_options.append("📢 PR Scorecard")
     if "hotel_rev" in st.session_state.active_modules:
         nav_options.append("🛏️ Hotel & Booking")
     if "fnb" in st.session_state.active_modules:
@@ -116,6 +118,10 @@ elif selected_page == "🎰 Casino Analytics":
 elif selected_page == "📈 Marketing & Attribution":
     import marketing
     marketing.render_marketing_module(supabase, profile['tenant_id'], prop_name)
+
+elif selected_page == "📢 PR Scorecard":
+    import pr
+    pr.render_pr_module(supabase, profile['tenant_id'], prop_name)
 
 elif selected_page == "📨 Email Analytics":
     import email_ops
