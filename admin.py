@@ -6,7 +6,6 @@ def render_admin_page(supabase):
     st.markdown("### ⚙️ Global SaaS Command Center")
     st.write("Manage your client properties, module subscriptions, and users.")
 
-    # Create three isolated tabs for organization
     tabs = st.tabs(["🏢 Properties (Tenants)", "📦 Subscriptions", "👥 Users"])
 
     # --- TAB 1: ADD & VIEW PROPERTIES ---
@@ -42,7 +41,7 @@ def render_admin_page(supabase):
         except Exception as e:
             st.error(f"Database error: {e}")
 
-    # --- TAB 2: MANAGE SUBSCRIPTIONS ---
+    # --- TAB 2: MANAGE SUBSCRIPTIONS (TIERED MODEL) ---
     with tabs[1]:
         st.subheader("Manage Active Modules")
         if 'res' in locals() and res.data:
@@ -57,9 +56,15 @@ def render_admin_page(supabase):
             with st.form("sub_form"):
                 st.write(f"Configure active modules for **{selected_tenant}**:")
                 
-                # Checkboxes for all SaaS Modules
-                mod_casino = st.checkbox("🎰 Casino Analytics", value="casino_ops" in active_mods)
-                mod_marketing = st.checkbox("📈 Marketing & Attribution", value="marketing_pro" in active_mods)
+                # BASE TIER (Locked On)
+                st.markdown("##### 🟢 Core Platform (Included in Base Subscription)")
+                st.checkbox("🎰 Casino Analytics", value=True, disabled=True)
+                st.checkbox("📈 Marketing & Attribution", value=True, disabled=True)
+                
+                st.divider()
+
+                # PREMIUM ADD-ONS (Optional)
+                st.markdown("##### ⚡ Premium Add-ons")
                 mod_pr = st.checkbox("📢 PR Scorecard", value="pr_media" in active_mods)
                 mod_hotel = st.checkbox("🛏️ Hotel & Booking", value="hotel_rev" in active_mods)
                 mod_fnb = st.checkbox("🍽️ Food & Beverage", value="fnb" in active_mods)
@@ -70,18 +75,20 @@ def render_admin_page(supabase):
                         # 1. Wipe the old subscriptions to start fresh
                         supabase.table("tenant_subscriptions").delete().eq("tenant_id", tenant_id).execute()
                         
-                        # 2. Build the new list based on the checkboxes
-                        new_subs = []
-                        if mod_casino: new_subs.append({"tenant_id": tenant_id, "module_name": "casino_ops", "status": "active"})
-                        if mod_marketing: new_subs.append({"tenant_id": tenant_id, "module_name": "marketing_pro", "status": "active"})
+                        # 2. Build the new list (Always include the Core Platform)
+                        new_subs = [
+                            {"tenant_id": tenant_id, "module_name": "casino_ops", "status": "active"},
+                            {"tenant_id": tenant_id, "module_name": "marketing_pro", "status": "active"}
+                        ]
+                        
+                        # 3. Add any selected Premium modules
                         if mod_pr: new_subs.append({"tenant_id": tenant_id, "module_name": "pr_media", "status": "active"})
                         if mod_hotel: new_subs.append({"tenant_id": tenant_id, "module_name": "hotel_rev", "status": "active"})
                         if mod_fnb: new_subs.append({"tenant_id": tenant_id, "module_name": "fnb", "status": "active"})
                         if mod_email: new_subs.append({"tenant_id": tenant_id, "module_name": "email_ops", "status": "active"})
                         
-                        # 3. Save to database
-                        if new_subs:
-                            supabase.table("tenant_subscriptions").insert(new_subs).execute()
+                        # 4. Save to database
+                        supabase.table("tenant_subscriptions").insert(new_subs).execute()
                         
                         st.success("Subscriptions successfully updated!")
                     except Exception as e:
