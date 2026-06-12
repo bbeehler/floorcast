@@ -57,9 +57,10 @@ def render_admin_page(supabase):
             with st.form("sub_form"):
                 st.write(f"Configure active modules for **{selected_tenant}**:")
                 
-                # Checkboxes default to True if the module is in their active list
+                # Checkboxes for all SaaS Modules
                 mod_casino = st.checkbox("🎰 Casino Analytics", value="casino_ops" in active_mods)
                 mod_marketing = st.checkbox("📈 Marketing & Attribution", value="marketing_pro" in active_mods)
+                mod_pr = st.checkbox("📢 PR Scorecard", value="pr_media" in active_mods)
                 mod_hotel = st.checkbox("🛏️ Hotel & Booking", value="hotel_rev" in active_mods)
                 mod_fnb = st.checkbox("🍽️ Food & Beverage", value="fnb" in active_mods)
 
@@ -72,6 +73,7 @@ def render_admin_page(supabase):
                         new_subs = []
                         if mod_casino: new_subs.append({"tenant_id": tenant_id, "module_name": "casino_ops", "status": "active"})
                         if mod_marketing: new_subs.append({"tenant_id": tenant_id, "module_name": "marketing_pro", "status": "active"})
+                        if mod_pr: new_subs.append({"tenant_id": tenant_id, "module_name": "pr_media", "status": "active"})
                         if mod_hotel: new_subs.append({"tenant_id": tenant_id, "module_name": "hotel_rev", "status": "active"})
                         if mod_fnb: new_subs.append({"tenant_id": tenant_id, "module_name": "fnb", "status": "active"})
                         
