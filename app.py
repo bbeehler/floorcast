@@ -80,6 +80,8 @@ with st.sidebar:
     
     if "casino_ops" in st.session_state.active_modules:
         nav_options.append("🎰 Casino Analytics")
+    if "marketing_pro" in st.session_state.active_modules:
+        nav_options.append("📈 Marketing & Attribution")
     if "hotel_rev" in st.session_state.active_modules:
         nav_options.append("🛏️ Hotel & Booking")
     if "fnb" in st.session_state.active_modules:
@@ -108,6 +110,10 @@ elif selected_page == "⚙️ Global SaaS Admin":
 elif selected_page == "🎰 Casino Analytics":
     import casino
     casino.render_casino_module(supabase, profile['tenant_id'], prop_name)
+
+elif selected_page == "📈 Marketing & Attribution":
+    import marketing
+    marketing.render_marketing_module(supabase, profile['tenant_id'], prop_name)
     
 else:
     st.title(selected_page)
