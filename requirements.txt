@@ -7,3 +7,4 @@ google-generativeai
 python-docx
 python-dateutil
 env_canada
+stripe
