@@ -163,6 +163,8 @@ with st.sidebar:
         nav_options.append("🍽️ Food & Beverage")
     if "email_ops" in st.session_state.active_modules:
         nav_options.append("📨 Email Analytics")
+    if "ai_advisor" in st.session_state.active_modules:
+        nav_options.append("🧠 AI Advisor")
         
     if role == "Super Admin":
         st.divider()
@@ -207,6 +209,10 @@ elif selected_page == "🛏️ Hotel & Booking":
 elif selected_page == "🍽️ Food & Beverage":
     import fnb
     fnb.render_fnb_module(supabase, profile['tenant_id'], prop_name)
+
+elif selected_page == "🧠 AI Advisor":
+    import ai_advisor
+    ai_advisor.render_advisor_module(supabase, profile['tenant_id'], prop_name)
     
 else:
     st.title(selected_page)
