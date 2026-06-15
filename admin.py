@@ -69,6 +69,7 @@ def render_admin_page(supabase):
                 mod_hotel = st.checkbox("🛏️ Hotel & Booking", value="hotel_rev" in active_mods)
                 mod_fnb = st.checkbox("🍽️ Food & Beverage", value="fnb" in active_mods)
                 mod_email = st.checkbox("📨 Email Analytics", value="email_ops" in active_mods)
+                mod_ai = st.checkbox("🧠 FloorCast AI Advisor", value="ai_advisor" in active_mods)
 
                 if st.form_submit_button("💾 Save Subscription Settings", use_container_width=True):
                     try:
@@ -86,6 +87,7 @@ def render_admin_page(supabase):
                         if mod_hotel: new_subs.append({"tenant_id": tenant_id, "module_name": "hotel_rev", "status": "active"})
                         if mod_fnb: new_subs.append({"tenant_id": tenant_id, "module_name": "fnb", "status": "active"})
                         if mod_email: new_subs.append({"tenant_id": tenant_id, "module_name": "email_ops", "status": "active"})
+                        if mod_ai: new_subs.append({"tenant_id": tenant_id, "module_name": "ai_advisor", "status": "active"})
                         
                         # 4. Save to database
                         supabase.table("tenant_subscriptions").insert(new_subs).execute()
