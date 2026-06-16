@@ -35,7 +35,7 @@ st.markdown("""
     }
     .hero-sub {
         font-size: 1.2rem;
-        color: #AAAAAA;
+        color: #FFFFFF;
         text-align: center;
         margin-bottom: 3rem;
         font-weight: 400;
@@ -110,6 +110,7 @@ st.markdown("""
         background-color: #0A0A0A !important;
         border: 1px solid #222222 !important;
         border-radius: 20px;
+        color: #FFFFFF !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -153,7 +154,8 @@ def create_checkout_session(price_id):
 # --- 5. THE LOGIN MODAL ---
 @st.dialog("Secure Client Portal")
 def login_modal():
-    st.markdown("<p style='color: #AAAAAA; margin-bottom: 1rem;'>Authenticate to access your workspace.</p>", unsafe_allow_html=True)
+    # FIXED: Replaced grey text with pure white text
+    st.markdown("<p style='color: #FFFFFF; font-weight: 500; margin-bottom: 1rem;'>Authenticate to access your workspace.</p>", unsafe_allow_html=True)
     with st.form("saas_login_form", clear_on_submit=True, border=False):
         email = st.text_input("Corporate Email", placeholder="manager@casino.com").strip().lower()
         password = st.text_input("Access Token", type="password", placeholder="••••••••")
