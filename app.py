@@ -1,100 +1,112 @@
-# app.py (Floating Layout & Clean Modal)
+# app.py (Frictionless Canva-Style Layout)
 import streamlit as st
 from supabase import create_client, Client
 import stripe
 
 # --- 1. PAGE CONFIGURATION ---
-st.set_page_config(page_title="FloorCast OS", layout="wide", initial_sidebar_state="expanded")
+# We force the sidebar to collapse initially, and our CSS will hide the toggle button permanently.
+st.set_page_config(page_title="FloorCast OS", layout="wide", initial_sidebar_state="collapsed")
 
-# --- CUSTOM ENTERPRISE CSS (Floating & Readable) ---
+# --- CUSTOM ENTERPRISE CSS (Borderless & Floating) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap');
     
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     
-    /* True Black Background & Pure White Text */
+    /* True Pitch Black Background & Pure White Text */
     .stApp { background-color: #000000; color: #FFFFFF; }
     
-    /* Hide Streamlit Header/Footer */
+    /* ANNIHILATE THE SIDEBAR AND DEFAULT UI */
     #MainMenu {visibility: hidden;}
     header {visibility: hidden;}
     footer {visibility: hidden;}
+    [data-testid="collapsedControl"] {display: none !important;}
+    section[data-testid="stSidebar"] {display: none !important;}
     
-    /* Hero & Marketing Typography */
+    /* Top Bar & Hero Typography */
+    .top-nav { display: flex; justify-content: space-between; padding: 1rem 0; margin-bottom: 2rem; border-bottom: 1px solid #1A1A1A; }
     .hero-greeting {
-        font-size: 4.5rem;
+        font-size: 3.5rem;
         font-weight: 800;
-        background: -webkit-linear-gradient(45deg, #A8C7FA, #FFFFFF);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
         text-align: center;
-        margin-top: 4vh;
-        margin-bottom: 0.2rem;
-        line-height: 1.1;
+        letter-spacing: -0.02em;
+        margin-top: 2vh;
+        margin-bottom: 0.5rem;
     }
     .hero-sub {
-        font-size: 1.5rem;
-        color: #FFFFFF;
-        text-align: center;
-        margin-bottom: 2rem;
-        font-weight: 500;
-    }
-    .hero-promo {
         font-size: 1.2rem;
-        color: #CCCCCC;
+        color: #AAAAAA;
         text-align: center;
-        margin-bottom: 8vh;
-        max-width: 900px;
-        margin-left: auto;
-        margin-right: auto;
-        line-height: 1.6;
+        margin-bottom: 3rem;
+        font-weight: 400;
     }
 
-    /* Primary CTA Buttons (Stripe) */
+    /* Style the Horizontal Navigation Radio Buttons */
+    div.row-widget.stRadio > div {
+        display: flex;
+        flex-direction: row;
+        justify-content: center;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+    /* Floating Bento Cards */
+    [data-testid="stVerticalBlock"] > div > div > div > div > div {
+        background-color: #080808;
+        border: 1px solid #1A1A1A;
+        border-radius: 16px;
+        padding: 1.5rem;
+        transition: transform 0.2s ease, border-color 0.2s ease;
+    }
+    [data-testid="stVerticalBlock"] > div > div > div > div > div:hover {
+        border-color: #333333;
+    }
+
+    /* Primary CTA Buttons */
     div.stButton > button {
-        background-color: #A8C7FA;
+        background-color: #FFFFFF;
         color: #000000 !important;
         font-weight: 600;
-        border-radius: 8px;
+        border-radius: 24px; /* Pill shape */
         border: none;
+        padding: 0.5rem 1.5rem;
         transition: all 0.2s ease;
-        padding: 0.5rem 1rem;
     }
     div.stButton > button:hover {
-        background-color: #FFFFFF;
         transform: translateY(-2px);
+        background-color: #A8C7FA;
     }
     
-    /* Navbar Login Button (Ghost style) */
-    .nav-btn > div > button {
+    /* Ghost Buttons (Nav/Logout) */
+    .ghost-btn > div > button {
         background-color: transparent;
         color: #FFFFFF !important;
-        border: 1px solid #555555;
+        border: 1px solid #333333;
     }
-    .nav-btn > div > button:hover {
+    .ghost-btn > div > button:hover {
         border: 1px solid #FFFFFF;
         background-color: #111111;
     }
 
-    /* --- FIX: READABLE INPUT FIELDS --- */
+    /* Input Fields (The Central Prompt) */
     .stTextInput input {
-        background-color: #1A1A1A !important;
+        background-color: #111111 !important;
         color: #FFFFFF !important;
-        border: 1px solid #555555 !important;
-        border-radius: 6px;
-        padding: 0.75rem;
+        border: 1px solid #333333 !important;
+        border-radius: 12px;
+        padding: 1rem 1.5rem;
+        font-size: 1.1rem;
     }
     .stTextInput input:focus {
-        border: 1px solid #A8C7FA !important;
+        border: 1px solid #FFFFFF !important;
         box-shadow: none !important;
     }
     
-    /* --- FIX: MODAL DIALOG STYLING --- */
+    /* Modal / Dialog Cleanup */
     div[role="dialog"] {
         background-color: #0A0A0A !important;
-        border: 1px solid #333333 !important;
-        border-radius: 16px;
+        border: 1px solid #222222 !important;
+        border-radius: 20px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -115,15 +127,13 @@ if 'authenticated' not in st.session_state: st.session_state.authenticated = Fal
 if 'user_profile' not in st.session_state: st.session_state.user_profile = None
 if 'active_modules' not in st.session_state: st.session_state.active_modules = []
 
-# --- 4. THE LOGIN MODAL (Pop-up Module) ---
+# --- THE LOGIN MODAL ---
 @st.dialog("Secure Client Portal")
 def login_modal():
-    st.markdown("<p style='color: #CCCCCC; margin-bottom: 1rem;'>Authenticate to access your property dashboard.</p>", unsafe_allow_html=True)
-    # Using border=False cleans up the lines inside the modal
+    st.markdown("<p style='color: #AAAAAA; margin-bottom: 1rem;'>Authenticate to access your workspace.</p>", unsafe_allow_html=True)
     with st.form("saas_login_form", clear_on_submit=True, border=False):
         email = st.text_input("Corporate Email", placeholder="manager@casino.com").strip().lower()
         password = st.text_input("Access Token", type="password", placeholder="••••••••")
-        
         st.write("\n")
         if st.form_submit_button("Authenticate & Enter", use_container_width=True):
             try:
@@ -143,135 +153,108 @@ def login_modal():
                     else:
                         st.error("Account created, but no property assigned. Contact Support.")
             except Exception as e:
-                st.error("Invalid credentials or database error.")
+                st.error("Invalid credentials.")
 
 # ==========================================
-# --- 5. LOGGED OUT: PUBLIC MARKETING PAGE ---
+# --- 4. LOGGED OUT: PUBLIC MARKETING PAGE ---
 # ==========================================
 if not st.session_state.authenticated:
-    # Hide sidebar UI entirely when logged out
-    st.markdown("""
-        <style>
-        [data-testid="collapsedControl"] {display: none !important;}
-        [data-testid="stSidebar"] {display: none !important;}
-        </style>
-    """, unsafe_allow_html=True)
-
-    # Top Navigation Bar
-    nav_col1, nav_col2 = st.columns([6, 1])
-    with nav_col1:
-        st.markdown("<h3 style='margin:0; color:#FFFFFF;'>🎰 FloorCast AI</h3>", unsafe_allow_html=True)
-    with nav_col2:
-        st.markdown('<div class="nav-btn">', unsafe_allow_html=True)
-        if st.button("Client Login", use_container_width=True):
-            login_modal() # Triggers the clean pop-up
+    # Top Bar
+    c1, c2 = st.columns([6, 1])
+    with c1: st.markdown("<h3 style='margin:0;'>🎰 FloorCast AI</h3>", unsafe_allow_html=True)
+    with c2:
+        st.markdown('<div class="ghost-btn">', unsafe_allow_html=True)
+        if st.button("Client Login", use_container_width=True): login_modal()
         st.markdown('</div>', unsafe_allow_html=True)
 
-    # The Hero Section
+    # Central Focus Hero
     st.markdown('<div class="hero-greeting">Predict. Perform. Profit.</div>', unsafe_allow_html=True)
-    st.markdown('<div class="hero-sub">The ultimate predictive engine for modern property operations.</div>', unsafe_allow_html=True)
-    st.markdown('<div class="hero-promo">FloorCast AI consolidates your gaming, marketing, and lodging data to isolate what truly drives revenue. Stop guessing at attribution and let AI predict your next best operational move.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero-sub" style="max-width: 700px; margin: 0 auto 4rem auto;">FloorCast AI consolidates your gaming, marketing, and lodging data to isolate what truly drives revenue.</div>', unsafe_allow_html=True)
 
-    # The Pricing Section (Floating, No Borders)
-    st.markdown("<h2 style='text-align:center; margin-bottom:3rem; margin-top:2rem;'>Choose Your Intelligence Tier</h2>", unsafe_allow_html=True)
-    
+    # Floating Bento Pricing
     c1, c2, c3 = st.columns(3)
-    
-    # CORE TIER
     with c1:
-        st.markdown("<h2 style='text-align:center;'>Core</h2>", unsafe_allow_html=True)
-        st.markdown("<h3 style='text-align:center;'>$299<span style='font-size:1rem; color:#AAAAAA;'> / mo</span></h3>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center; color:#AAAAAA; margin-bottom: 2rem;'>or $3,000 / year</p>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center;'>✔️ <b>Casino Analytics</b><br>✔️ <b>Marketing & Attribution</b><br><span style='color:#777777;'>❌ AI Advisor</span><br><span style='color:#777777;'>❌ Auxiliary Modules</span></p>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align:center;'>Core</h2><h3 style='text-align:center;'>$299</h3><p style='text-align:center; color:#888;'>/ month</p><br><p style='text-align:center; color:#CCC;'>✔️ Casino Analytics<br>✔️ Marketing Attribution</p>", unsafe_allow_html=True)
         st.write("\n")
-        if st.button("Select Core", key="btn_core", use_container_width=True):
-            st.info("Routing to Stripe Checkout...")
-
-    # PREMIUM TIER
+        if st.button("Select Core", key="b1", use_container_width=True): st.info("Routing to Stripe...")
     with c2:
-        st.markdown("<h2 style='text-align:center; color:#A8C7FA;'>Premium</h2>", unsafe_allow_html=True)
-        st.markdown("<h3 style='text-align:center; color:#A8C7FA;'>$350<span style='font-size:1rem; color:#AAAAAA;'> / mo</span></h3>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center; color:#AAAAAA; margin-bottom: 2rem;'>or $3,600 / year</p>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center;'>✔️ <b>Casino Analytics</b><br>✔️ <b>Marketing & Attribution</b><br>✔️ <b>🧠 AI Advisor</b><br><span style='color:#777777;'>❌ Auxiliary Modules</span></p>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align:center; color:#A8C7FA;'>Premium</h2><h3 style='text-align:center; color:#A8C7FA;'>$350</h3><p style='text-align:center; color:#888;'>/ month</p><br><p style='text-align:center; color:#CCC;'>✔️ Core Features<br>✔️ <b>🧠 AI Advisor</b></p>", unsafe_allow_html=True)
         st.write("\n")
-        if st.button("Select Premium", key="btn_prem", use_container_width=True):
-            st.info("Routing to Stripe Checkout...")
-
-    # ENTERPRISE TIER
+        if st.button("Select Premium", key="b2", use_container_width=True): st.info("Routing to Stripe...")
     with c3:
-        st.markdown("<h2 style='text-align:center;'>Enterprise</h2>", unsafe_allow_html=True)
-        st.markdown("<h3 style='text-align:center;'>$999<span style='font-size:1rem; color:#AAAAAA;'> / mo</span></h3>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center; color:#AAAAAA; margin-bottom: 2rem;'>or $10,000 / year</p>", unsafe_allow_html=True)
-        st.markdown("<p style='text-align:center;'>✔️ <b>All Core & Premium Features</b><br>✔️ <b>PR Scorecard</b><br>✔️ <b>Hotel & Booking</b><br>✔️ <b>Food & Beverage</b><br>✔️ <b>Email Analytics</b></p>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align:center;'>Enterprise</h2><h3 style='text-align:center;'>$999</h3><p style='text-align:center; color:#888;'>/ month</p><br><p style='text-align:center; color:#CCC;'>✔️ All Features<br>✔️ Full Auxiliary Suite</p>", unsafe_allow_html=True)
         st.write("\n")
-        if st.button("Select Enterprise", key="btn_ent", use_container_width=True):
-            st.info("Routing to Stripe Checkout...")
-
-    st.stop() # Halts execution for unauthenticated visitors
+        if st.button("Select Enterprise", key="b3", use_container_width=True): st.info("Routing to Stripe...")
+    st.stop()
 
 # ==========================================
-# --- 6. LOGGED IN: THE ACTIVE WORKSPACE ---
+# --- 5. LOGGED IN: THE ACTIVE WORKSPACE ---
 # ==========================================
 profile = st.session_state.user_profile
 prop_name = profile['tenants']['property_name']
 role = profile['user_role']
 
-with st.sidebar:
-    st.markdown(f"### 🏢 {prop_name}")
-    st.caption(f"{profile['email']} ({role})")
-    st.divider()
-    
-    st.markdown("### 🎛️ Active Modules")
-    
-    nav_options = ["🏠 Control Center"]
-    if "ai_advisor" in st.session_state.active_modules: nav_options.append("🧠 AI Advisor")
-    if "casino_ops" in st.session_state.active_modules: nav_options.append("🎰 Casino Analytics")
-    if "marketing_pro" in st.session_state.active_modules: nav_options.append("📈 Marketing Analytics")
-    if "pr_media" in st.session_state.active_modules: nav_options.append("📢 PR Scorecard")
-    if "hotel_rev" in st.session_state.active_modules: nav_options.append("🛏️ Hotel & Booking")
-    if "fnb" in st.session_state.active_modules: nav_options.append("🍽️ Food & Beverage")
-    if "email_ops" in st.session_state.active_modules: nav_options.append("📨 Email Analytics")
-        
-    if role == "Super Admin":
-        st.divider()
-        nav_options.append("⚙️ Global SaaS Admin")
-        
-    selected_page = st.radio("Workspace", nav_options, label_visibility="collapsed")
-    
-    st.divider()
-    if st.button("Sign Out", use_container_width=True):
+# Clean Top Navigation Bar
+nav_c1, nav_c2, nav_c3 = st.columns([1, 4, 1])
+with nav_c1:
+    st.markdown("<h4 style='margin-top: 10px;'>🎰 FloorCast OS</h4>", unsafe_allow_html=True)
+with nav_c3:
+    st.markdown('<div class="ghost-btn">', unsafe_allow_html=True)
+    if st.button(f"Sign Out ({profile['email']})", use_container_width=True):
         st.session_state.clear()
         st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
-# --- 7. PAGE ROUTING ---
-if selected_page == "🏠 Control Center":
-    st.markdown(f'<div class="hero-greeting" style="text-align:left; font-size:2.5rem; margin-top:2vh;">Good afternoon.</div>', unsafe_allow_html=True)
-    st.markdown(f'<div class="hero-sub" style="text-align:left; font-size:1.2rem; margin-bottom:3vh;">{prop_name} metrics are synced. Select a module from the sidebar.</div>', unsafe_allow_html=True)
-    
-elif selected_page == "⚙️ Global SaaS Admin":
+# The Central Focus Axis (Greeting & Prompt)
+st.markdown(f'<div class="hero-greeting">Good afternoon, {prop_name}.</div>', unsafe_allow_html=True)
+
+_, search_col, _ = st.columns([1, 2, 1])
+with search_col:
+    # A fake search/prompt bar purely for the UI aesthetic of a centralized design platform
+    st.text_input("", placeholder="Ask FloorCast AI to analyze your property data...", label_visibility="collapsed")
+    st.write("\n")
+
+# Horizontal Semantic Navigation (Replaces the Sidebar)
+st.write("\n")
+nav_options = ["🏠 Overview"]
+if "ai_advisor" in st.session_state.active_modules: nav_options.append("🧠 AI Advisor")
+if "casino_ops" in st.session_state.active_modules: nav_options.append("🎰 Casino")
+if "marketing_pro" in st.session_state.active_modules: nav_options.append("📈 Marketing")
+if "pr_media" in st.session_state.active_modules: nav_options.append("📢 PR")
+if "hotel_rev" in st.session_state.active_modules: nav_options.append("🛏️ Hotel")
+if "fnb" in st.session_state.active_modules: nav_options.append("🍽️ F&B")
+if "email_ops" in st.session_state.active_modules: nav_options.append("📨 Email")
+if role == "Super Admin": nav_options.append("⚙️ Global Admin")
+
+selected_page = st.radio("Workspace Navigation", nav_options, horizontal=True, label_visibility="collapsed")
+st.divider()
+
+# --- PAGE ROUTING ---
+if selected_page == "🏠 Overview":
+    st.markdown("<h3 style='text-align: center; color: #888; font-weight: 400; margin-top: 4vh;'>Select a module from the menu above to begin your analysis.</h3>", unsafe_allow_html=True)
+elif selected_page == "⚙️ Global Admin":
     import admin
     admin.render_admin_page(supabase)
-elif selected_page == "🎰 Casino Analytics":
+elif selected_page == "🎰 Casino":
     import casino
     casino.render_casino_module(supabase, profile['tenant_id'], prop_name)
-elif selected_page == "📈 Marketing Analytics":
+elif selected_page == "📈 Marketing":
     import marketing
     marketing.render_marketing_module(supabase, profile['tenant_id'], prop_name)
-elif selected_page == "📢 PR Scorecard":
+elif selected_page == "📢 PR":
     import pr
     pr.render_pr_module(supabase, profile['tenant_id'], prop_name)
-elif selected_page == "📨 Email Analytics":
+elif selected_page == "📨 Email":
     import email_ops
     email_ops.render_email_module(supabase, profile['tenant_id'], prop_name)
-elif selected_page == "🛏️ Hotel & Booking":
+elif selected_page == "🛏️ Hotel":
     import hotel
     hotel.render_hotel_module(supabase, profile['tenant_id'], prop_name)
-elif selected_page == "🍽️ Food & Beverage":
+elif selected_page == "🍽️ F&B":
     import fnb
     fnb.render_fnb_module(supabase, profile['tenant_id'], prop_name)
 elif selected_page == "🧠 AI Advisor":
     import ai_advisor
     ai_advisor.render_advisor_module(supabase, profile['tenant_id'], prop_name)
 else:
-    st.title(selected_page)
-    st.info(f"The {selected_page} module is currently under construction.")
+    st.info("Module under construction.")
