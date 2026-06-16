@@ -300,6 +300,10 @@ profile = st.session_state.user_profile
 prop_name = profile['tenants']['property_name']
 role = profile['user_role']
 
+# Ensure we have a way to track the active tab and pending AI questions
+if 'nav_selection' not in st.session_state: st.session_state.nav_selection = "🏠 Overview"
+if 'pending_ai_query' not in st.session_state: st.session_state.pending_ai_query = None
+
 nav_c1, nav_c2 = st.columns([5, 1])
 with nav_c1: st.markdown("<h4 style='margin-top: 10px; color:#111827;'>🎰 FloorCast OS</h4>", unsafe_allow_html=True)
 with nav_c2:
@@ -311,15 +315,25 @@ with nav_c2:
 
 st.markdown(f'<div class="hero-greeting">Good afternoon, {prop_name}.</div>', unsafe_allow_html=True)
 
-_, search_col, _ = st.columns([1, 3, 1])
-with search_col:
-    col_input, col_btn = st.columns([4, 1])
-    with col_input:
-        st.text_input("", placeholder="Ask FloorCast AI to analyze your property data...", label_visibility="collapsed")
-    with col_btn:
-        if st.button("Analyze ✨", use_container_width=True):
-            st.info("AI Analysis triggered.")
-st.write("\n")
+# --- THE FIX: AI PROMPT VISIBILITY & ROUTING ---
+# Only render this massive central prompt if they pay for the AI module
+if "ai_advisor" in st.session_state.active_modules:
+    _, search_col, _ = st.columns([1, 3, 1])
+    with search_col:
+        col_input, col_btn = st.columns([4, 1])
+        with col_input:
+            quick_query = st.text_input("", placeholder="Ask FloorCast AI to analyze your property data...", label_visibility="collapsed", key="quick_bar")
+        with col_btn:
+            if st.button("Analyze ✨", use_container_width=True):
+                if quick_query:
+                    # Store their question and force the app to the AI tab
+                    st.session_state.pending_ai_query = quick_query
+                    st.session_state.nav_selection = "🧠 AI Advisor"
+                    st.rerun()
+    st.write("\n")
+else:
+    # Add some breathing room so the layout doesn't collapse for Core users
+    st.write("\n\n\n")
 
 # Horizontal Semantic Navigation (Clean Centered Tabs)
 nav_options = ["🏠 Overview"]
@@ -332,7 +346,18 @@ if "fnb" in st.session_state.active_modules: nav_options.append("🍽️ F&B")
 if "email_ops" in st.session_state.active_modules: nav_options.append("📨 Email")
 if role == "Super Admin": nav_options.append("⚙️ Global Admin")
 
-selected_page = st.radio("Workspace Navigation", nav_options, horizontal=True, label_visibility="collapsed")
+# Keep the radio button synced with our routing logic
+try:
+    nav_idx = nav_options.index(st.session_state.nav_selection)
+except ValueError:
+    nav_idx = 0
+
+selected_page = st.radio("Workspace Navigation", nav_options, index=nav_idx, horizontal=True, label_visibility="collapsed")
+
+# If the user clicks a tab directly, update the state and reload
+if selected_page != st.session_state.nav_selection:
+    st.session_state.nav_selection = selected_page
+    st.rerun()
 
 # --- 8. PAGE ROUTING ---
 if selected_page == "🏠 Overview":
@@ -344,5 +369,8 @@ elif selected_page == "📢 PR": import pr; pr.render_pr_module(supabase, profil
 elif selected_page == "📨 Email": import email_ops; email_ops.render_email_module(supabase, profile['tenant_id'], prop_name)
 elif selected_page == "🛏️ Hotel": import hotel; hotel.render_hotel_module(supabase, profile['tenant_id'], prop_name)
 elif selected_page == "🍽️ F&B": import fnb; fnb.render_fnb_module(supabase, profile['tenant_id'], prop_name)
-elif selected_page == "🧠 AI Advisor": import ai_advisor; ai_advisor.render_advisor_module(supabase, profile['tenant_id'], prop_name)
+elif selected_page == "🧠 AI Advisor": 
+    import ai_advisor
+    # Pass any pending queries from the home screen into the module
+    ai_advisor.render_advisor_module(supabase, profile['tenant_id'], prop_name)
 else: st.info("Module under construction.")
