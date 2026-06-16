@@ -1,4 +1,4 @@
-# app.py (Final Borderless Canvas & Revenue Engine)
+# app.py (Final Borderless Canvas, Marketing Runway & Revenue Engine)
 import streamlit as st
 from supabase import create_client, Client
 import stripe
@@ -192,21 +192,46 @@ if not st.session_state.authenticated:
 
     # Central Focus Hero
     st.markdown('<div class="hero-greeting">Predict. Perform. Profit.</div>', unsafe_allow_html=True)
-    st.markdown('<div class="hero-sub" style="max-width: 700px; margin: 0 auto 4rem auto;">FloorCast AI consolidates your gaming, marketing, and lodging data to isolate what truly drives revenue.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero-sub" style="max-width: 700px; margin: 0 auto 3rem auto;">FloorCast AI consolidates your gaming, marketing, and lodging data to isolate what truly drives revenue. Stop guessing at attribution.</div>', unsafe_allow_html=True)
 
-    # Floating Bento Pricing
-    c1, c2, c3 = st.columns(3)
-    with c1:
+    # --- THE MARKETING RUNWAY (Features & Benefits) ---
+    st.write("\n")
+    m1, m2 = st.columns(2)
+    with m1:
+        with st.container():
+            st.markdown("### 🎰 Total Floor Visibility")
+            st.write("Stop looking at siloed reports. We merge gaming coin-in, F&B covers, and hotel occupancy into one unified, real-time operational dashboard.")
+    with m2:
+        with st.container():
+            st.markdown("### 🎯 Closed-Loop Attribution")
+            st.write("End the marketing guessing game. Tie your digital ad spend, PR campaigns, and email blasts directly to on-property guest actions and revenue.")
+            
+    st.write("\n")
+    m3, m4 = st.columns(2)
+    with m3:
+        with st.container():
+            st.markdown("### 🧠 Predictive AI Advisor")
+            st.write("Fire your static dashboards. Ask our integrated AI questions about your property in plain English and instantly get actionable yield forecasts.")
+    with m4:
+        with st.container():
+            st.markdown("### 🛡️ Enterprise-Grade Vault")
+            st.write("Built on a strict multi-tenant architecture. Your property's operational data is mathematically isolated, heavily encrypted, and completely private.")
+
+    # --- Floating Bento Pricing ---
+    st.markdown("<h2 style='text-align:center; margin-bottom:3rem; margin-top:5rem;'>Choose Your Intelligence Tier</h2>", unsafe_allow_html=True)
+    
+    p1, p2, p3 = st.columns(3)
+    with p1:
         st.markdown("<h2 style='text-align:center;'>Core</h2><h3 style='text-align:center;'>$299</h3><p style='text-align:center; color:#888;'>/ month</p><br><p style='text-align:center; color:#CCC;'>✔️ Casino Analytics<br>✔️ Marketing Attribution</p>", unsafe_allow_html=True)
         st.write("\n")
         if st.button("Select Core", key="b1", use_container_width=True): 
             create_checkout_session("price_YOUR_CORE_ID_HERE")
-    with c2:
+    with p2:
         st.markdown("<h2 style='text-align:center; color:#A8C7FA;'>Premium</h2><h3 style='text-align:center; color:#A8C7FA;'>$350</h3><p style='text-align:center; color:#888;'>/ month</p><br><p style='text-align:center; color:#CCC;'>✔️ Core Features<br>✔️ <b>🧠 AI Advisor</b></p>", unsafe_allow_html=True)
         st.write("\n")
         if st.button("Select Premium", key="b2", use_container_width=True): 
             create_checkout_session("price_YOUR_PREMIUM_ID_HERE")
-    with c3:
+    with p3:
         st.markdown("<h2 style='text-align:center;'>Enterprise</h2><h3 style='text-align:center;'>$999</h3><p style='text-align:center; color:#888;'>/ month</p><br><p style='text-align:center; color:#CCC;'>✔️ All Features<br>✔️ Full Auxiliary Suite</p>", unsafe_allow_html=True)
         st.write("\n")
         if st.button("Select Enterprise", key="b3", use_container_width=True): 
