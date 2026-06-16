@@ -1,4 +1,4 @@
-# app.py (Marketing First & Modal Login)
+# app.py (Floating Layout & Clean Modal)
 import streamlit as st
 from supabase import create_client, Client
 import stripe
@@ -6,7 +6,7 @@ import stripe
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="FloorCast OS", layout="wide", initial_sidebar_state="expanded")
 
-# --- CUSTOM ENTERPRISE CSS (High Contrast) ---
+# --- CUSTOM ENTERPRISE CSS (Floating & Readable) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap');
@@ -77,11 +77,24 @@ st.markdown("""
         background-color: #111111;
     }
 
-    /* Pricing Card Styling */
-    [data-testid="stVerticalBlock"] > div > div > div > div > div {
-        background-color: #0A0A0A;
-        border: 1px solid #333333;
-        border-radius: 12px;
+    /* --- FIX: READABLE INPUT FIELDS --- */
+    .stTextInput input {
+        background-color: #1A1A1A !important;
+        color: #FFFFFF !important;
+        border: 1px solid #555555 !important;
+        border-radius: 6px;
+        padding: 0.75rem;
+    }
+    .stTextInput input:focus {
+        border: 1px solid #A8C7FA !important;
+        box-shadow: none !important;
+    }
+    
+    /* --- FIX: MODAL DIALOG STYLING --- */
+    div[role="dialog"] {
+        background-color: #0A0A0A !important;
+        border: 1px solid #333333 !important;
+        border-radius: 16px;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -105,8 +118,9 @@ if 'active_modules' not in st.session_state: st.session_state.active_modules = [
 # --- 4. THE LOGIN MODAL (Pop-up Module) ---
 @st.dialog("Secure Client Portal")
 def login_modal():
-    st.write("Authenticate to access your property dashboard.")
-    with st.form("saas_login_form", clear_on_submit=True):
+    st.markdown("<p style='color: #CCCCCC; margin-bottom: 1rem;'>Authenticate to access your property dashboard.</p>", unsafe_allow_html=True)
+    # Using border=False cleans up the lines inside the modal
+    with st.form("saas_login_form", clear_on_submit=True, border=False):
         email = st.text_input("Corporate Email", placeholder="manager@casino.com").strip().lower()
         password = st.text_input("Access Token", type="password", placeholder="••••••••")
         
@@ -150,7 +164,7 @@ if not st.session_state.authenticated:
     with nav_col2:
         st.markdown('<div class="nav-btn">', unsafe_allow_html=True)
         if st.button("Client Login", use_container_width=True):
-            login_modal() # Triggers the pop-up
+            login_modal() # Triggers the clean pop-up
         st.markdown('</div>', unsafe_allow_html=True)
 
     # The Hero Section
@@ -158,48 +172,40 @@ if not st.session_state.authenticated:
     st.markdown('<div class="hero-sub">The ultimate predictive engine for modern property operations.</div>', unsafe_allow_html=True)
     st.markdown('<div class="hero-promo">FloorCast AI consolidates your gaming, marketing, and lodging data to isolate what truly drives revenue. Stop guessing at attribution and let AI predict your next best operational move.</div>', unsafe_allow_html=True)
 
-    # The Pricing Section
-    st.markdown("<h2 style='text-align:center; margin-bottom:2rem;'>Choose Your Intelligence Tier</h2>", unsafe_allow_html=True)
+    # The Pricing Section (Floating, No Borders)
+    st.markdown("<h2 style='text-align:center; margin-bottom:3rem; margin-top:2rem;'>Choose Your Intelligence Tier</h2>", unsafe_allow_html=True)
     
     c1, c2, c3 = st.columns(3)
     
     # CORE TIER
     with c1:
-        with st.container(border=True):
-            st.markdown("<h2 style='text-align:center;'>Core</h2>", unsafe_allow_html=True)
-            st.markdown("<h3 style='text-align:center;'>$299<span style='font-size:1rem; color:#AAAAAA;'> / mo</span></h3>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align:center; color:#AAAAAA;'>or $3,000 / year</p>", unsafe_allow_html=True)
-            st.markdown("---")
-            st.markdown("✔️ **Casino Analytics**<br>✔️ **Marketing & Attribution**<br>❌ AI Advisor<br>❌ Auxiliary Modules", unsafe_allow_html=True)
-            st.write("\n")
-            if st.button("Select Core", key="btn_core", use_container_width=True):
-                # Add your Stripe link here for $299
-                st.info("Routing to Stripe Checkout...")
+        st.markdown("<h2 style='text-align:center;'>Core</h2>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align:center;'>$299<span style='font-size:1rem; color:#AAAAAA;'> / mo</span></h3>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center; color:#AAAAAA; margin-bottom: 2rem;'>or $3,000 / year</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center;'>✔️ <b>Casino Analytics</b><br>✔️ <b>Marketing & Attribution</b><br><span style='color:#777777;'>❌ AI Advisor</span><br><span style='color:#777777;'>❌ Auxiliary Modules</span></p>", unsafe_allow_html=True)
+        st.write("\n")
+        if st.button("Select Core", key="btn_core", use_container_width=True):
+            st.info("Routing to Stripe Checkout...")
 
     # PREMIUM TIER
     with c2:
-        with st.container(border=True):
-            st.markdown("<h2 style='text-align:center; color:#A8C7FA;'>Premium</h2>", unsafe_allow_html=True)
-            st.markdown("<h3 style='text-align:center; color:#A8C7FA;'>$350<span style='font-size:1rem; color:#AAAAAA;'> / mo</span></h3>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align:center; color:#AAAAAA;'>or $3,600 / year</p>", unsafe_allow_html=True)
-            st.markdown("---")
-            st.markdown("✔️ **Casino Analytics**<br>✔️ **Marketing & Attribution**<br>✔️ **🧠 AI Advisor**<br>❌ Auxiliary Modules", unsafe_allow_html=True)
-            st.write("\n")
-            if st.button("Select Premium", key="btn_prem", use_container_width=True):
-                # Add your Stripe link here for $350
-                st.info("Routing to Stripe Checkout...")
+        st.markdown("<h2 style='text-align:center; color:#A8C7FA;'>Premium</h2>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align:center; color:#A8C7FA;'>$350<span style='font-size:1rem; color:#AAAAAA;'> / mo</span></h3>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center; color:#AAAAAA; margin-bottom: 2rem;'>or $3,600 / year</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center;'>✔️ <b>Casino Analytics</b><br>✔️ <b>Marketing & Attribution</b><br>✔️ <b>🧠 AI Advisor</b><br><span style='color:#777777;'>❌ Auxiliary Modules</span></p>", unsafe_allow_html=True)
+        st.write("\n")
+        if st.button("Select Premium", key="btn_prem", use_container_width=True):
+            st.info("Routing to Stripe Checkout...")
 
     # ENTERPRISE TIER
     with c3:
-        with st.container(border=True):
-            st.markdown("<h2 style='text-align:center;'>Enterprise</h2>", unsafe_allow_html=True)
-            st.markdown("<h3 style='text-align:center;'>$999<span style='font-size:1rem; color:#AAAAAA;'> / mo</span></h3>", unsafe_allow_html=True)
-            st.markdown("<p style='text-align:center; color:#AAAAAA;'>or $10,000 / year</p>", unsafe_allow_html=True)
-            st.markdown("---")
-            st.markdown("✔️ **All Core & Premium Features**<br>✔️ **PR Scorecard**<br>✔️ **Hotel & Booking**<br>✔️ **Food & Beverage**<br>✔️ **Email Analytics**", unsafe_allow_html=True)
-            if st.button("Select Enterprise", key="btn_ent", use_container_width=True):
-                # Add your Stripe link here for $999
-                st.info("Routing to Stripe Checkout...")
+        st.markdown("<h2 style='text-align:center;'>Enterprise</h2>", unsafe_allow_html=True)
+        st.markdown("<h3 style='text-align:center;'>$999<span style='font-size:1rem; color:#AAAAAA;'> / mo</span></h3>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center; color:#AAAAAA; margin-bottom: 2rem;'>or $10,000 / year</p>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align:center;'>✔️ <b>All Core & Premium Features</b><br>✔️ <b>PR Scorecard</b><br>✔️ <b>Hotel & Booking</b><br>✔️ <b>Food & Beverage</b><br>✔️ <b>Email Analytics</b></p>", unsafe_allow_html=True)
+        st.write("\n")
+        if st.button("Select Enterprise", key="btn_ent", use_container_width=True):
+            st.info("Routing to Stripe Checkout...")
 
     st.stop() # Halts execution for unauthenticated visitors
 
