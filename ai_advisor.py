@@ -10,7 +10,7 @@ def render_advisor_module(supabase, tenant_id, property_name, initial_query=None
     # 1. Initialize the AI
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        model = genai.GenerativeModel('gemini-2-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
     except Exception as e:
         st.error("AI Configuration Error. Please check your API key secrets.")
         return
