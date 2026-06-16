@@ -371,7 +371,6 @@ elif selected_page == "🛏️ Hotel": import hotel; hotel.render_hotel_module(s
 elif selected_page == "🍽️ F&B": import fnb; fnb.render_fnb_module(supabase, profile['tenant_id'], prop_name)
 elif selected_page == "🧠 AI Advisor": 
     import ai_advisor
-    # Pass the query, then clear it so it doesn't run again on page refresh
     query = st.session_state.get('pending_ai_query', None)
     st.session_state.pending_ai_query = None 
     ai_advisor.render_advisor_module(supabase, profile['tenant_id'], prop_name, initial_query=query)
