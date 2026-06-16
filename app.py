@@ -1,10 +1,9 @@
-# app.py (Frictionless Canva-Style Layout)
+# app.py (Final Borderless Canvas & Revenue Engine)
 import streamlit as st
 from supabase import create_client, Client
 import stripe
 
 # --- 1. PAGE CONFIGURATION ---
-# We force the sidebar to collapse initially, and our CSS will hide the toggle button permanently.
 st.set_page_config(page_title="FloorCast OS", layout="wide", initial_sidebar_state="collapsed")
 
 # --- CUSTOM ENTERPRISE CSS (Borderless & Floating) ---
@@ -50,16 +49,19 @@ st.markdown("""
         gap: 10px;
         flex-wrap: wrap;
     }
-    /* Floating Bento Cards */
+    
+    /* Floating Bento Cards (Borderless & Elevated) */
     [data-testid="stVerticalBlock"] > div > div > div > div > div {
-        background-color: #080808;
-        border: 1px solid #1A1A1A;
+        background-color: #0D0D0D; 
+        border: none !important; 
         border-radius: 16px;
         padding: 1.5rem;
-        transition: transform 0.2s ease, border-color 0.2s ease;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.8); 
+        transition: transform 0.2s ease, background-color 0.2s ease;
     }
     [data-testid="stVerticalBlock"] > div > div > div > div > div:hover {
-        border-color: #333333;
+        background-color: #141414; 
+        transform: translateY(-2px); 
     }
 
     /* Primary CTA Buttons */
@@ -92,14 +94,15 @@ st.markdown("""
     .stTextInput input {
         background-color: #111111 !important;
         color: #FFFFFF !important;
-        border: 1px solid #333333 !important;
+        border: none !important; 
         border-radius: 12px;
         padding: 1rem 1.5rem;
         font-size: 1.1rem;
+        box-shadow: inset 0 2px 10px rgba(0,0,0,0.5); 
     }
     .stTextInput input:focus {
-        border: 1px solid #FFFFFF !important;
-        box-shadow: none !important;
+        background-color: #1A1A1A !important;
+        box-shadow: 0 0 0 2px #A8C7FA !important; 
     }
     
     /* Modal / Dialog Cleanup */
@@ -127,7 +130,27 @@ if 'authenticated' not in st.session_state: st.session_state.authenticated = Fal
 if 'user_profile' not in st.session_state: st.session_state.user_profile = None
 if 'active_modules' not in st.session_state: st.session_state.active_modules = []
 
-# --- THE LOGIN MODAL ---
+# --- 4. STRIPE CHECKOUT ENGINE ---
+def create_checkout_session(price_id):
+    try:
+        stripe.api_key = st.secrets["STRIPE_API_KEY"]
+        with st.spinner("Connecting to secure payment gateway..."):
+            checkout_session = stripe.checkout.Session.create(
+                payment_method_types=['card'],
+                line_items=[{
+                    'price': price_id, 
+                    'quantity': 1,
+                }],
+                mode='subscription',
+                metadata={'tier': price_id},
+                success_url="https://floorcast.streamlit.app/?success=true",
+                cancel_url="https://floorcast.streamlit.app/?canceled=true",
+            )
+        st.link_button("💳 Proceed to Secure Payment", checkout_session.url, use_container_width=True)
+    except Exception as e:
+        st.error(f"Payment Gateway Error: {e}")
+
+# --- 5. THE LOGIN MODAL ---
 @st.dialog("Secure Client Portal")
 def login_modal():
     st.markdown("<p style='color: #AAAAAA; margin-bottom: 1rem;'>Authenticate to access your workspace.</p>", unsafe_allow_html=True)
@@ -156,7 +179,7 @@ def login_modal():
                 st.error("Invalid credentials.")
 
 # ==========================================
-# --- 4. LOGGED OUT: PUBLIC MARKETING PAGE ---
+# --- 6. LOGGED OUT: PUBLIC MARKETING PAGE ---
 # ==========================================
 if not st.session_state.authenticated:
     # Top Bar
@@ -176,19 +199,22 @@ if not st.session_state.authenticated:
     with c1:
         st.markdown("<h2 style='text-align:center;'>Core</h2><h3 style='text-align:center;'>$299</h3><p style='text-align:center; color:#888;'>/ month</p><br><p style='text-align:center; color:#CCC;'>✔️ Casino Analytics<br>✔️ Marketing Attribution</p>", unsafe_allow_html=True)
         st.write("\n")
-        if st.button("Select Core", key="b1", use_container_width=True): st.info("Routing to Stripe...")
+        if st.button("Select Core", key="b1", use_container_width=True): 
+            create_checkout_session("price_YOUR_CORE_ID_HERE")
     with c2:
         st.markdown("<h2 style='text-align:center; color:#A8C7FA;'>Premium</h2><h3 style='text-align:center; color:#A8C7FA;'>$350</h3><p style='text-align:center; color:#888;'>/ month</p><br><p style='text-align:center; color:#CCC;'>✔️ Core Features<br>✔️ <b>🧠 AI Advisor</b></p>", unsafe_allow_html=True)
         st.write("\n")
-        if st.button("Select Premium", key="b2", use_container_width=True): st.info("Routing to Stripe...")
+        if st.button("Select Premium", key="b2", use_container_width=True): 
+            create_checkout_session("price_YOUR_PREMIUM_ID_HERE")
     with c3:
         st.markdown("<h2 style='text-align:center;'>Enterprise</h2><h3 style='text-align:center;'>$999</h3><p style='text-align:center; color:#888;'>/ month</p><br><p style='text-align:center; color:#CCC;'>✔️ All Features<br>✔️ Full Auxiliary Suite</p>", unsafe_allow_html=True)
         st.write("\n")
-        if st.button("Select Enterprise", key="b3", use_container_width=True): st.info("Routing to Stripe...")
+        if st.button("Select Enterprise", key="b3", use_container_width=True): 
+            create_checkout_session("price_YOUR_ENTERPRISE_ID_HERE")
     st.stop()
 
 # ==========================================
-# --- 5. LOGGED IN: THE ACTIVE WORKSPACE ---
+# --- 7. LOGGED IN: THE ACTIVE WORKSPACE ---
 # ==========================================
 profile = st.session_state.user_profile
 prop_name = profile['tenants']['property_name']
@@ -229,7 +255,7 @@ if role == "Super Admin": nav_options.append("⚙️ Global Admin")
 selected_page = st.radio("Workspace Navigation", nav_options, horizontal=True, label_visibility="collapsed")
 st.divider()
 
-# --- PAGE ROUTING ---
+# --- 8. PAGE ROUTING ---
 if selected_page == "🏠 Overview":
     st.markdown("<h3 style='text-align: center; color: #888; font-weight: 400; margin-top: 4vh;'>Select a module from the menu above to begin your analysis.</h3>", unsafe_allow_html=True)
 elif selected_page == "⚙️ Global Admin":
