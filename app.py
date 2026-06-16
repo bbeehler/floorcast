@@ -18,6 +18,64 @@ def init_connection():
 
 supabase = init_connection()
 
+# --- CUSTOM ENTERPRISE CSS ---
+st.markdown("""
+    <style>
+    /* Import Premium Google Font */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+
+    /* Global Font Override */
+    html, body, [class*="css"] {
+        font-family: 'Inter', sans-serif;
+    }
+
+    /* Hide Streamlit Header and Footer */
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+
+    /* Sleek Dark Background & Padding Adjustment */
+    .stApp {
+        background-color: #0B0E14;
+        color: #F8F9FA;
+    }
+
+    /* Upgrade the Buttons */
+    div.stButton > button {
+        background: linear-gradient(135deg, #FFCC00 0%, #D4AF37 100%);
+        color: #000000 !important;
+        font-weight: 600;
+        border: none;
+        border-radius: 6px;
+        padding: 0.75rem 1.5rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 4px 14px 0 rgba(255, 204, 0, 0.2);
+    }
+    
+    div.stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 20px 0 rgba(255, 204, 0, 0.4);
+        border: none;
+    }
+
+    /* Style the Form Containers & Cards */
+    [data-testid="stForm"], [data-testid="stVerticalBlock"] > div > div > div > div > div {
+        background-color: #141824;
+        border: 1px solid #2A3241;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+    }
+
+    /* Gradient Text for the Main Logo/Title */
+    h1 {
+        background: -webkit-linear-gradient(45deg, #FFCC00, #FFFFFF);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        font-weight: 800;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- 3. SESSION STATE INITIALIZATION ---
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
