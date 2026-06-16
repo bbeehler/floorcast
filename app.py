@@ -56,11 +56,15 @@ st.markdown("""
         transform: translateY(-3px);
     }
 
-    /* --- THE FIX: PERFECTLY CENTERED TABS --- */
-    div.row-widget.stRadio {
+    /* --- THE FIX: FORCING THE TABS TO DEAD CENTER --- */
+    /* 1. Target the invisible Streamlit wrapper */
+    div[data-testid="stRadio"] {
         display: flex;
         justify-content: center;
+        align-items: center;
+        width: 100%;
     }
+    /* 2. Target the actual radio group */
     div[role="radiogroup"] {
         display: flex;
         flex-direction: row;
@@ -69,9 +73,8 @@ st.markdown("""
         border-bottom: 1px solid #E5E7EB;
         padding-bottom: 0.5rem;
         margin-bottom: 2rem;
-        width: fit-content; 
-        margin-left: auto;
-        margin-right: auto;
+        width: fit-content; /* Stops it from stretching */
+        margin: 0 auto; /* Centers it */
     }
     div[role="radiogroup"] > label { padding: 0; background: transparent !important; cursor: pointer; }
     div[role="radiogroup"] > label > div:first-child { display: none !important; }
@@ -297,7 +300,6 @@ profile = st.session_state.user_profile
 prop_name = profile['tenants']['property_name']
 role = profile['user_role']
 
-# WIDENED the top right column so the email doesn't squish
 nav_c1, nav_c2 = st.columns([5, 1])
 with nav_c1: st.markdown("<h4 style='margin-top: 10px; color:#111827;'>🎰 FloorCast OS</h4>", unsafe_allow_html=True)
 with nav_c2:
@@ -309,7 +311,6 @@ with nav_c2:
 
 st.markdown(f'<div class="hero-greeting">Good afternoon, {prop_name}.</div>', unsafe_allow_html=True)
 
-# THE FIX: Clean columns for the prompt field, no nested vertical blocks
 _, search_col, _ = st.columns([1, 3, 1])
 with search_col:
     col_input, col_btn = st.columns([4, 1])
