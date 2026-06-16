@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import google.generativeai as genai
 
-def render_advisor_module(supabase, tenant_id, property_name):
+def render_advisor_module(supabase, tenant_id, property_name, initial_query=None):
     st.title("🧠 FloorCast AI Advisor")
     st.write(f"Ask questions about your data, trends, and predictive models for **{property_name}**.")
 
@@ -34,21 +34,36 @@ def render_advisor_module(supabase, tenant_id, property_name):
 
     system_context = fetch_property_context(tenant_id)
 
-    # 3. The Chat Interface
+    # 3. State Setup
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
+    # 4. Handle incoming query from the Home page
+    if initial_query and not st.session_state.messages:
+        st.session_state.messages.append({"role": "user", "content": initial_query})
+        
+        # Immediate auto-trigger
+        with st.chat_message("assistant"):
+            with st.spinner("Analyzing property data..."):
+                try:
+                    full_prompt = f"{system_context}\n\nUser Question: {initial_query}"
+                    response = model.generate_content(full_prompt)
+                    st.markdown(response.text)
+                    st.session_state.messages.append({"role": "assistant", "content": response.text})
+                except Exception as e:
+                    st.error(f"Failed to generate response: {e}")
+
+    # 5. Render existing messages
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    if prompt := st.chat_input("Ask FloorCast AI a question... (e.g., 'What is driving our highest coin-in this month?')"):
-        # Show user message
+    # 6. Chat Input
+    if prompt := st.chat_input("Ask FloorCast AI a question..."):
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Generate AI response
         with st.chat_message("assistant"):
             with st.spinner("Analyzing property data..."):
                 try:
