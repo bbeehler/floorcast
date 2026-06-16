@@ -1,9 +1,77 @@
-# app.py (The SaaS Router)
+# app.py (The Gemini-Style Router)
 import streamlit as st
 from supabase import create_client, Client
+import stripe
 
 # --- 1. PAGE CONFIGURATION ---
-st.set_page_config(page_title="FloorCast SaaS OS", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="FloorCast OS", layout="wide", initial_sidebar_state="expanded")
+
+# --- CUSTOM ENTERPRISE CSS (Gemini Dark Mode Palette) ---
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+    
+    html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+    
+    /* Gemini Dark Mode Colors */
+    .stApp { background-color: #131314; color: #E3E3E3; }
+    
+    /* Hide Streamlit Header/Footer */
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    
+    /* Center the main greeting */
+    .hero-greeting {
+        font-size: 3.5rem;
+        font-weight: 500;
+        background: -webkit-linear-gradient(45deg, #A8C7FA, #FFFFFF);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        text-align: center;
+        margin-top: 5vh;
+        margin-bottom: 0.5rem;
+    }
+    .hero-sub {
+        font-size: 1.5rem;
+        color: #C4C7C5;
+        text-align: center;
+        margin-bottom: 5vh;
+    }
+
+    /* Style the Login/Auth Box like a prompt input */
+    [data-testid="stForm"] {
+        background-color: #1E1F20;
+        border: 1px solid #444746;
+        border-radius: 24px;
+        padding: 2rem;
+        max-width: 600px;
+        margin: 0 auto;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+
+    /* Upgrade Buttons */
+    div.stButton > button {
+        background-color: #A8C7FA;
+        color: #041E49 !important;
+        font-weight: 600;
+        border-radius: 20px;
+        border: none;
+        transition: all 0.2s ease;
+    }
+    div.stButton > button:hover {
+        background-color: #D3E3FD;
+        transform: scale(1.02);
+    }
+    
+    /* Secondary/Ghost Button styling for the pricing link */
+    .ghost-btn > div > button {
+        background-color: transparent;
+        color: #A8C7FA !important;
+        border: 1px solid #444746;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # --- 2. DATABASE CONNECTION ---
 @st.cache_resource
@@ -18,168 +86,75 @@ def init_connection():
 
 supabase = init_connection()
 
-# --- CUSTOM ENTERPRISE CSS ---
-st.markdown("""
-    <style>
-    /* Import Premium Google Font */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
-
-    /* Global Font Override */
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-    }
-
-    /* Hide Streamlit Header and Footer */
-    #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
-
-    /* Sleek Dark Background & Padding Adjustment */
-    .stApp {
-        background-color: #0B0E14;
-        color: #F8F9FA;
-    }
-
-    /* Upgrade the Buttons */
-    div.stButton > button {
-        background: linear-gradient(135deg, #FFCC00 0%, #D4AF37 100%);
-        color: #000000 !important;
-        font-weight: 600;
-        border: none;
-        border-radius: 6px;
-        padding: 0.75rem 1.5rem;
-        transition: all 0.3s ease;
-        box-shadow: 0 4px 14px 0 rgba(255, 204, 0, 0.2);
-    }
-    
-    div.stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 20px 0 rgba(255, 204, 0, 0.4);
-        border: none;
-    }
-
-    /* Style the Form Containers & Cards */
-    [data-testid="stForm"], [data-testid="stVerticalBlock"] > div > div > div > div > div {
-        background-color: #141824;
-        border: 1px solid #2A3241;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-    }
-
-    /* Gradient Text for the Main Logo/Title */
-    h1 {
-        background: -webkit-linear-gradient(45deg, #FFCC00, #FFFFFF);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        font-weight: 800;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
 # --- 3. SESSION STATE INITIALIZATION ---
-if 'authenticated' not in st.session_state:
-    st.session_state.authenticated = False
-if 'user_profile' not in st.session_state:
-    st.session_state.user_profile = None
-if 'active_modules' not in st.session_state:
-    st.session_state.active_modules = []
-if 'show_login' not in st.session_state:
-    st.session_state.show_login = False
+if 'authenticated' not in st.session_state: st.session_state.authenticated = False
+if 'user_profile' not in st.session_state: st.session_state.user_profile = None
+if 'active_modules' not in st.session_state: st.session_state.active_modules = []
+if 'show_pricing' not in st.session_state: st.session_state.show_pricing = False
 
-# --- 4. PUBLIC LANDING PAGE ---
-if not st.session_state.authenticated and not st.session_state.show_login:
-    # Header & Pitch
-    st.markdown("<h1 style='text-align: center; color: #FFCC00;'>🎰 FloorCast</h1>", unsafe_allow_html=True)
-    st.markdown("<h3 style='text-align: center;'>The Next Generation of Hospitality & Casino Attribution</h3>", unsafe_allow_html=True)
-    st.write("\n")
+# --- 4. TOP NAVIGATION BAR (Logged Out) ---
+if not st.session_state.authenticated:
+    st.sidebar.empty() # Keep sidebar hidden when logged out
     
-    # Value Proposition
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.markdown("### Predict. Perform. Profit.")
-        st.write(
-            "FloorCast transforms raw hospitality and gaming data into high-stakes actionable intelligence. "
-            "Built specifically for modern property operators, our secure multi-tenant platform eliminates guesswork "
-            "across the gaming floor, marketing loops, and earned media channels."
-        )
-    with col_b:
-        st.markdown("### Why FloorCast?")
-        st.markdown("✔️ **Eliminate Data Silos:** Consolidate data from gaming, lodging, and F&B channels.")
-        st.markdown("✔️ **AI Scenario Modeling:** Run seasonal forecasting with instant impact variables.")
-        st.markdown("✔️ **Strict Data Isolation:** Enterprise-grade security keeps your operation completely private.")
-
-    st.divider()
-
-    # Pricing Tier Cards
-    st.markdown("<h3 style='text-align: center;'>Simple, Transparent Architecture Pricing</h3>", unsafe_allow_html=True)
-    st.write("\n")
-    
-    col_p1, col_p2 = st.columns(2)
-    with col_p1:
-        with st.container(border=True):
-            st.markdown("### 🟢 Core Platform")
-            st.markdown("#### **$999** / month")
-            st.write("The fundamental data engine for modern property operations.")
-            st.markdown("---")
-            st.markdown("🔹 **🎰 Casino Analytics Module** (Traffic, Coin-In, Signups)")
-            st.markdown("🔹 **📈 Marketing & Attribution Module** (MTA Modeling)")
-            st.markdown("🔹 **🔮 AI Scenario Simulator** (Predictive Forecasting)")
-            st.write("\n")
-            if st.button("Subscribe to Core", use_container_width=True):
-                st.info("🔄 Initiating secure Stripe checkout session...")
-                # Stripe integration point will inject here
-
-    with col_p2:
-        with st.container(border=True):
-            st.markdown("### ⚡ Enterprise Suite")
-            st.markdown("#### **Custom Enterprise Tier**")
-            st.write("Complete operational visibility across all premium auxiliary revenue streams.")
-            st.markdown("---")
-            st.markdown("🔹 **Includes everything in the Core Platform**")
-            st.markdown("🔹 **📢 PR Scorecard Module** (Earned Media Performance)")
-            st.markdown("🔹 **📨 Email Analytics Module** (Automated Ingestion & Metrics)")
-            st.markdown("🔹 **🛏️ Hotel & Booking Module** + **🍽️ F&B Module**")
-            if st.button("Contact Sales", use_container_width=True):
-                st.success("📩 Request sent! Our enterprise team will follow up within 24 hours.")
-
-    st.divider()
-    
-    # Login Trigger Footer
-    _, col_btn, _ = st.columns([1, 1, 1])
-    with col_btn:
-        if st.button("Access Dashboard — Secure Login", use_container_width=True):
-            st.session_state.show_login = True
+    nav_col1, nav_col2 = st.columns([4, 1])
+    with nav_col1:
+        st.markdown("<h3 style='margin:0;'>🎰 FloorCast AI</h3>", unsafe_allow_html=True)
+    with nav_col2:
+        st.markdown('<div class="ghost-btn">', unsafe_allow_html=True)
+        if st.button("View Enterprise Pricing", use_container_width=True):
+            st.session_state.show_pricing = not st.session_state.show_pricing
             st.rerun()
-            
+        st.markdown('</div>', unsafe_allow_html=True)
+
+# --- 5. LOGGED OUT: PRICING OVERLAY ---
+if not st.session_state.authenticated and st.session_state.show_pricing:
+    st.markdown("<h2 style='text-align:center; margin-top:2rem;'>Core Platform Access</h2>", unsafe_allow_html=True)
+    _, p_col, _ = st.columns([1, 2, 1])
+    with p_col:
+        with st.container(border=True):
+            st.markdown("<h1 style='text-align:center;'>$999<span style='font-size:1rem; color:#888;'>/mo</span></h1>", unsafe_allow_html=True)
+            st.write("Full access to Casino Analytics, Marketing Attribution, and the AI Scenario Simulator.")
+            if st.button("Initialize Stripe Checkout", use_container_width=True):
+                try:
+                    stripe.api_key = st.secrets["STRIPE_API_KEY"]
+                    with st.spinner("Connecting to secure payment gateway..."):
+                        checkout_session = stripe.checkout.Session.create(
+                            payment_method_types=['card'],
+                            line_items=[{'price_data': {'currency': 'usd', 'unit_amount': 99900, 'product_data': {'name': 'FloorCast Core Platform'}}, 'quantity': 1}],
+                            mode='subscription',
+                            success_url="https://floorcast.streamlit.app/?success=true",
+                            cancel_url="https://floorcast.streamlit.app/?canceled=true",
+                        )
+                    st.link_button("💳 Proceed to Secure Payment", checkout_session.url, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Payment Gateway Error: Make sure your Stripe API key is in your Streamlit Secrets. Details: {e}")
     st.stop()
 
-# --- 5. AUTHENTICATION GATEWAY ---
-if not st.session_state.authenticated and st.session_state.show_login:
-    _, col_login, _ = st.columns([1, 1.5, 1])
-    with col_login:
-        st.markdown("<h1 style='text-align: center;'>FloorCast OS</h1>", unsafe_allow_html=True)
-        with st.form("saas_login_form", border=True):
-            email = st.text_input("Work Email").strip().lower()
-            password = st.text_input("Password", type="password")
+# --- 6. LOGGED OUT: THE GEMINI ENTRY GATEWAY ---
+if not st.session_state.authenticated and not st.session_state.show_pricing:
+    # The Massive Greeting
+    st.markdown('<div class="hero-greeting">Hello.</div>', unsafe_allow_html=True)
+    st.markdown('<div class="hero-sub">Sign in to unlock FloorCast AI and optimize your property.</div>', unsafe_allow_html=True)
+    
+    # The Centralized Login
+    _, auth_col, _ = st.columns([1, 2, 1])
+    with auth_col:
+        with st.form("saas_login_form", clear_on_submit=True):
+            email = st.text_input("Corporate Email", placeholder="manager@casino.com").strip().lower()
+            password = st.text_input("Access Token (Password)", type="password", placeholder="••••••••")
             
-            if st.form_submit_button("Secure Login", use_container_width=True):
+            st.write("\n")
+            if st.form_submit_button("Authenticate & Enter", use_container_width=True):
                 try:
-                    # 1. Authenticate with Supabase Auth
                     auth_res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                    
                     if auth_res.user:
-                        # 2. Fetch Multi-Tenant Profile
                         profile_res = supabase.table("user_profiles").select("*, tenants(property_name, region)").eq("email", email).execute()
-                        
                         if profile_res.data:
                             user_data = profile_res.data[0]
                             tenant_id = user_data['tenant_id']
-                            
-                            # 3. Fetch Active Subscriptions for this Tenant
                             sub_res = supabase.table("tenant_subscriptions").select("module_name").eq("tenant_id", tenant_id).eq("status", "active").execute()
                             modules = [sub['module_name'] for sub in sub_res.data] if sub_res.data else []
                             
-                            # 4. Lock in Session State
                             st.session_state.authenticated = True
                             st.session_state.user_profile = user_data
                             st.session_state.active_modules = modules
@@ -188,57 +163,48 @@ if not st.session_state.authenticated and st.session_state.show_login:
                             st.error("Account created, but no property assigned. Contact Support.")
                 except Exception as e:
                     st.error("Invalid credentials or database error.")
-                    
-        if st.button("← Back to Product Page", use_container_width=True):
-            st.session_state.show_login = False
-            st.rerun()
-    st.stop() # Halt execution if not logged in
+    st.stop()
 
-# --- 6. THE DYNAMIC SHELL (Logged In) ---
+# ==========================================
+# --- 7. LOGGED IN: THE ACTIVE WORKSPACE ---
+# ==========================================
 profile = st.session_state.user_profile
 prop_name = profile['tenants']['property_name']
 role = profile['user_role']
 
+# The Sidebar Appears
 with st.sidebar:
-    st.markdown(f"**🏢 {prop_name}**")
-    st.caption(f"User: {profile['email']} ({role})")
+    st.markdown(f"### 🏢 {prop_name}")
+    st.caption(f"{profile['email']} ({role})")
     st.divider()
     
     st.markdown("### 🎛️ Active Modules")
     
-    # We build the navigation dynamically based on what they bought
-    nav_options = ["🏠 Home / Account"]
-    
-    if "casino_ops" in st.session_state.active_modules:
-        nav_options.append("🎰 Casino Analytics")
-    if "marketing_pro" in st.session_state.active_modules:
-        nav_options.append("📈 Marketing & Attribution")
-    if "pr_media" in st.session_state.active_modules:
-        nav_options.append("📢 PR Scorecard")
-    if "hotel_rev" in st.session_state.active_modules:
-        nav_options.append("🛏️ Hotel & Booking")
-    if "fnb" in st.session_state.active_modules:
-        nav_options.append("🍽️ Food & Beverage")
-    if "email_ops" in st.session_state.active_modules:
-        nav_options.append("📨 Email Analytics")
-    if "ai_advisor" in st.session_state.active_modules:
-        nav_options.append("🧠 AI Advisor")
+    nav_options = ["🏠 Control Center"]
+    if "casino_ops" in st.session_state.active_modules: nav_options.append("🎰 Casino Analytics")
+    if "marketing_pro" in st.session_state.active_modules: nav_options.append("📈 Marketing & Attribution")
+    if "pr_media" in st.session_state.active_modules: nav_options.append("📢 PR Scorecard")
+    if "hotel_rev" in st.session_state.active_modules: nav_options.append("🛏️ Hotel & Booking")
+    if "fnb" in st.session_state.active_modules: nav_options.append("🍽️ Food & Beverage")
+    if "email_ops" in st.session_state.active_modules: nav_options.append("📨 Email Analytics")
+    if "ai_advisor" in st.session_state.active_modules: nav_options.append("🧠 AI Advisor")
         
     if role == "Super Admin":
         st.divider()
         nav_options.append("⚙️ Global SaaS Admin")
         
-    selected_page = st.radio("Navigation", nav_options, label_visibility="collapsed")
+    selected_page = st.radio("Workspace", nav_options, label_visibility="collapsed")
     
     st.divider()
-    if st.button("Logout", use_container_width=True):
+    if st.button("Sign Out", use_container_width=True):
         st.session_state.clear()
         st.rerun()
 
-# --- 7. PAGE ROUTING ---
-if selected_page == "🏠 Home / Account":
-    st.title(f"Welcome to {prop_name}")
-    st.write("Select an active module from the sidebar to begin.")
+# --- 8. PAGE ROUTING ---
+if selected_page == "🏠 Control Center":
+    # Logged-in Greeting matches the aesthetic
+    st.markdown(f'<div class="hero-greeting" style="text-align:left; font-size:2.5rem; margin-top:2vh;">Good afternoon.</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="hero-sub" style="text-align:left; font-size:1.2rem; margin-bottom:3vh;">{prop_name} metrics are synced. Select a module from the sidebar.</div>', unsafe_allow_html=True)
     
 elif selected_page == "⚙️ Global SaaS Admin":
     import admin
