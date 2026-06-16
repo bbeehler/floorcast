@@ -1,4 +1,4 @@
-# app.py (Light Mode Enterprise Canvas & Revenue Engine)
+# app.py (Light Mode, Tabbed Navigation & Borderless Bento)
 import streamlit as st
 from supabase import create_client, Client
 import stripe
@@ -6,15 +6,15 @@ import stripe
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="FloorCast OS", layout="wide", initial_sidebar_state="collapsed")
 
-# --- CUSTOM ENTERPRISE CSS (Light Mode & Floating) ---
+# --- CUSTOM ENTERPRISE CSS (Off-White Canvas, Pure White Cards, Tabbed Nav) ---
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800&display=swap');
     
     html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
     
-    /* Clean White Background & Charcoal Text */
-    .stApp { background-color: #FFFFFF; color: #111827; }
+    /* Off-White Background to make Pure White cards float */
+    .stApp { background-color: #FAFAFA; color: #111827; }
     
     /* ANNIHILATE THE SIDEBAR AND DEFAULT UI */
     #MainMenu {visibility: hidden;}
@@ -23,8 +23,7 @@ st.markdown("""
     [data-testid="collapsedControl"] {display: none !important;}
     section[data-testid="stSidebar"] {display: none !important;}
     
-    /* Top Bar & Hero Typography */
-    .top-nav { display: flex; justify-content: space-between; padding: 1rem 0; margin-bottom: 2rem; border-bottom: 1px solid #E5E7EB; }
+    /* Hero Typography */
     .hero-greeting {
         font-size: 3.5rem;
         font-weight: 800;
@@ -36,33 +35,53 @@ st.markdown("""
     }
     .hero-sub {
         font-size: 1.2rem;
-        color: #4B5563;
+        color: #6B7280;
         text-align: center;
         margin-bottom: 3rem;
         font-weight: 400;
     }
 
-    /* Style the Horizontal Navigation Radio Buttons */
-    div.row-widget.stRadio > div {
+    /* --- THE FIX: CONVERT RADIO BUTTONS TO CLEAN TABS --- */
+    div[role="radiogroup"] {
         display: flex;
         flex-direction: row;
         justify-content: center;
-        gap: 10px;
-        flex-wrap: wrap;
+        gap: 2.5rem;
+        border-bottom: 1px solid #E5E7EB; /* Subtle line under all tabs */
+        padding-bottom: 0.5rem;
+        margin-bottom: 2rem;
+    }
+    div[role="radiogroup"] > label {
+        padding: 0;
+        background: transparent !important;
+        cursor: pointer;
+    }
+    /* Hide the actual radio circle dots completely */
+    div[role="radiogroup"] > label > div:first-child {
+        display: none !important; 
+    }
+    div[role="radiogroup"] > label p {
+        font-size: 1.05rem;
+        font-weight: 500;
+        color: #4B5563;
+        margin: 0;
+    }
+    div[role="radiogroup"] > label:hover p {
+        color: #111827;
     }
     
-    /* Floating Bento Cards (Light Mode Shadows) */
+    /* --- THE FIX: BORDERLESS BENTO CARDS --- */
     [data-testid="stVerticalBlock"] > div > div > div > div > div {
-        background-color: #FFFFFF; 
-        border: 1px solid #F3F4F6 !important; 
+        background-color: #FFFFFF !important; /* Pure white */
+        border: none !important; /* DESTROY ALL BORDERS */
         border-radius: 16px;
-        padding: 1.5rem;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.05); /* Very soft shadow */
+        padding: 2rem;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.03); /* Ultra-soft, airy drop shadow */
         transition: transform 0.2s ease, box-shadow 0.2s ease;
     }
     [data-testid="stVerticalBlock"] > div > div > div > div > div:hover {
-        box-shadow: 0 10px 30px rgba(0,0,0,0.1); 
-        transform: translateY(-2px); 
+        box-shadow: 0 12px 30px rgba(0,0,0,0.08); /* Shadow lifts on hover */
+        transform: translateY(-3px); 
     }
 
     /* Primary CTA Buttons */
@@ -70,14 +89,14 @@ st.markdown("""
         background-color: #111827;
         color: #FFFFFF !important;
         font-weight: 600;
-        border-radius: 24px; /* Pill shape */
+        border-radius: 24px;
         border: none;
         padding: 0.5rem 1.5rem;
         transition: all 0.2s ease;
     }
     div.stButton > button:hover {
         transform: translateY(-2px);
-        background-color: #2563EB; /* Bright blue on hover */
+        background-color: #2563EB; /* Bright blue hover state */
     }
     
     /* Ghost Buttons (Nav/Logout) */
@@ -85,34 +104,35 @@ st.markdown("""
         background-color: transparent;
         color: #111827 !important;
         border: 1px solid #D1D5DB;
+        box-shadow: none;
     }
     .ghost-btn > div > button:hover {
         border: 1px solid #111827;
-        background-color: #F9FAFB;
+        background-color: #FFFFFF;
     }
 
     /* Input Fields (The Central Prompt) */
     .stTextInput input {
-        background-color: #F9FAFB !important;
+        background-color: #FFFFFF !important;
         color: #111827 !important;
         border: 1px solid #E5E7EB !important; 
         border-radius: 12px;
         padding: 1rem 1.5rem;
         font-size: 1.1rem;
-        box-shadow: inset 0 1px 3px rgba(0,0,0,0.02); 
+        box-shadow: 0 2px 10px rgba(0,0,0,0.02); 
     }
     .stTextInput input:focus {
-        background-color: #FFFFFF !important;
         box-shadow: 0 0 0 2px #2563EB !important; /* Blue focus ring */
+        border-color: transparent !important;
     }
     
-    /* Modal / Dialog Cleanup */
+    /* Modal / Dialog */
     div[role="dialog"] {
         background-color: #FFFFFF !important;
-        border: 1px solid #E5E7EB !important;
+        border: none !important;
         border-radius: 20px;
         color: #111827 !important;
-        box-shadow: 0 20px 40px rgba(0,0,0,0.1) !important;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25) !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -156,7 +176,7 @@ def create_checkout_session(price_id):
 # --- 5. THE LOGIN MODAL ---
 @st.dialog("Secure Client Portal")
 def login_modal():
-    st.markdown("<p style='color: #4B5563; font-weight: 500; margin-bottom: 1rem;'>Authenticate to access your workspace.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='color: #6B7280; font-weight: 500; margin-bottom: 1rem;'>Authenticate to access your workspace.</p>", unsafe_allow_html=True)
     with st.form("saas_login_form", clear_on_submit=True, border=False):
         email = st.text_input("Corporate Email", placeholder="manager@casino.com").strip().lower()
         password = st.text_input("Access Token", type="password", placeholder="••••••••")
@@ -202,40 +222,40 @@ if not st.session_state.authenticated:
     m1, m2 = st.columns(2)
     with m1:
         with st.container():
-            st.markdown("<h3 style='color:#111827;'>🎰 Total Floor Visibility</h3>", unsafe_allow_html=True)
-            st.markdown("<p style='color:#4B5563;'>Stop looking at siloed reports. We merge gaming coin-in, F&B covers, and hotel occupancy into one unified, real-time operational dashboard.</p>", unsafe_allow_html=True)
+            st.markdown("<h3 style='color:#111827; margin-bottom: 0.5rem;'>🎰 Total Floor Visibility</h3>", unsafe_allow_html=True)
+            st.markdown("<p style='color:#6B7280;'>Stop looking at siloed reports. We merge gaming coin-in, F&B covers, and hotel occupancy into one unified, real-time operational dashboard.</p>", unsafe_allow_html=True)
     with m2:
         with st.container():
-            st.markdown("<h3 style='color:#111827;'>🎯 Closed-Loop Attribution</h3>", unsafe_allow_html=True)
-            st.markdown("<p style='color:#4B5563;'>End the marketing guessing game. Tie your digital ad spend, PR campaigns, and email blasts directly to on-property guest actions and revenue.</p>", unsafe_allow_html=True)
+            st.markdown("<h3 style='color:#111827; margin-bottom: 0.5rem;'>🎯 Closed-Loop Attribution</h3>", unsafe_allow_html=True)
+            st.markdown("<p style='color:#6B7280;'>End the marketing guessing game. Tie your digital ad spend, PR campaigns, and email blasts directly to on-property guest actions and revenue.</p>", unsafe_allow_html=True)
             
     st.write("\n")
     m3, m4 = st.columns(2)
     with m3:
         with st.container():
-            st.markdown("<h3 style='color:#111827;'>🧠 Predictive AI Advisor</h3>", unsafe_allow_html=True)
-            st.markdown("<p style='color:#4B5563;'>Fire your static dashboards. Ask our integrated AI questions about your property in plain English and instantly get actionable yield forecasts.</p>", unsafe_allow_html=True)
+            st.markdown("<h3 style='color:#111827; margin-bottom: 0.5rem;'>🧠 Predictive AI Advisor</h3>", unsafe_allow_html=True)
+            st.markdown("<p style='color:#6B7280;'>Fire your static dashboards. Ask our integrated AI questions about your property in plain English and instantly get actionable yield forecasts.</p>", unsafe_allow_html=True)
     with m4:
         with st.container():
-            st.markdown("<h3 style='color:#111827;'>🛡️ Enterprise-Grade Vault</h3>", unsafe_allow_html=True)
-            st.markdown("<p style='color:#4B5563;'>Built on a strict multi-tenant architecture. Your property's operational data is mathematically isolated, heavily encrypted, and completely private.</p>", unsafe_allow_html=True)
+            st.markdown("<h3 style='color:#111827; margin-bottom: 0.5rem;'>🛡️ Enterprise-Grade Vault</h3>", unsafe_allow_html=True)
+            st.markdown("<p style='color:#6B7280;'>Built on a strict multi-tenant architecture. Your property's operational data is mathematically isolated, heavily encrypted, and completely private.</p>", unsafe_allow_html=True)
 
     # --- Floating Bento Pricing ---
     st.markdown("<h2 style='text-align:center; margin-bottom:3rem; margin-top:5rem; color:#111827;'>Choose Your Intelligence Tier</h2>", unsafe_allow_html=True)
     
     p1, p2, p3 = st.columns(3)
     with p1:
-        st.markdown("<h2 style='text-align:center; color:#111827;'>Core</h2><h3 style='text-align:center; color:#111827;'>$299</h3><p style='text-align:center; color:#6B7280;'>/ month</p><br><p style='text-align:center; color:#4B5563;'>✔️ Casino Analytics<br>✔️ Marketing Attribution</p>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align:center; color:#111827;'>Core</h2><h3 style='text-align:center; color:#111827; font-size:2.5rem;'>$299</h3><p style='text-align:center; color:#9CA3AF;'>/ month</p><br><p style='text-align:center; color:#6B7280;'>✔️ Casino Analytics<br>✔️ Marketing Attribution</p>", unsafe_allow_html=True)
         st.write("\n")
         if st.button("Select Core", key="b1", use_container_width=True): 
             create_checkout_session("price_YOUR_CORE_ID_HERE")
     with p2:
-        st.markdown("<h2 style='text-align:center; color:#2563EB;'>Premium</h2><h3 style='text-align:center; color:#2563EB;'>$350</h3><p style='text-align:center; color:#6B7280;'>/ month</p><br><p style='text-align:center; color:#4B5563;'>✔️ Core Features<br>✔️ <b style='color:#111827;'>🧠 AI Advisor</b></p>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align:center; color:#2563EB;'>Premium</h2><h3 style='text-align:center; color:#2563EB; font-size:2.5rem;'>$350</h3><p style='text-align:center; color:#9CA3AF;'>/ month</p><br><p style='text-align:center; color:#6B7280;'>✔️ Core Features<br>✔️ <b style='color:#111827;'>🧠 AI Advisor</b></p>", unsafe_allow_html=True)
         st.write("\n")
         if st.button("Select Premium", key="b2", use_container_width=True): 
             create_checkout_session("price_YOUR_PREMIUM_ID_HERE")
     with p3:
-        st.markdown("<h2 style='text-align:center; color:#111827;'>Enterprise</h2><h3 style='text-align:center; color:#111827;'>$999</h3><p style='text-align:center; color:#6B7280;'>/ month</p><br><p style='text-align:center; color:#4B5563;'>✔️ All Features<br>✔️ Full Auxiliary Suite</p>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align:center; color:#111827;'>Enterprise</h2><h3 style='text-align:center; color:#111827; font-size:2.5rem;'>$999</h3><p style='text-align:center; color:#9CA3AF;'>/ month</p><br><p style='text-align:center; color:#6B7280;'>✔️ All Features<br>✔️ Full Auxiliary Suite</p>", unsafe_allow_html=True)
         st.write("\n")
         if st.button("Select Enterprise", key="b3", use_container_width=True): 
             create_checkout_session("price_YOUR_ENTERPRISE_ID_HERE")
@@ -264,12 +284,10 @@ st.markdown(f'<div class="hero-greeting">Good afternoon, {prop_name}.</div>', un
 
 _, search_col, _ = st.columns([1, 2, 1])
 with search_col:
-    # A fake search/prompt bar purely for the UI aesthetic of a centralized design platform
     st.text_input("", placeholder="Ask FloorCast AI to analyze your property data...", label_visibility="collapsed")
     st.write("\n")
 
-# Horizontal Semantic Navigation (Replaces the Sidebar)
-st.write("\n")
+# Horizontal Semantic Navigation (Clean Tabs)
 nav_options = ["🏠 Overview"]
 if "ai_advisor" in st.session_state.active_modules: nav_options.append("🧠 AI Advisor")
 if "casino_ops" in st.session_state.active_modules: nav_options.append("🎰 Casino")
@@ -281,11 +299,10 @@ if "email_ops" in st.session_state.active_modules: nav_options.append("📨 Emai
 if role == "Super Admin": nav_options.append("⚙️ Global Admin")
 
 selected_page = st.radio("Workspace Navigation", nav_options, horizontal=True, label_visibility="collapsed")
-st.divider()
 
 # --- 8. PAGE ROUTING ---
 if selected_page == "🏠 Overview":
-    st.markdown("<h3 style='text-align: center; color: #6B7280; font-weight: 400; margin-top: 4vh;'>Select a module from the menu above to begin your analysis.</h3>", unsafe_allow_html=True)
+    st.markdown("<h3 style='text-align: center; color: #9CA3AF; font-weight: 400; margin-top: 4vh;'>Select a module from the menu above to begin your analysis.</h3>", unsafe_allow_html=True)
 elif selected_page == "⚙️ Global Admin":
     import admin
     admin.render_admin_page(supabase)
