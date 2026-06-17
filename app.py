@@ -383,7 +383,8 @@ if selected_page != st.session_state.nav_selection:
 
 # Ensure your data is fetched before the routing begins
 df = get_forensic_metrics(supabase, profile) 
-    elif selected_page == "🏠 Overview":
+
+if selected_page == "🏠 Overview":
     if df.empty:
         st.markdown("""
         <div class="bento-card" style="text-align: center; margin-top: 4vh;">
@@ -506,16 +507,31 @@ df = get_forensic_metrics(supabase, profile)
             </div>
             """, unsafe_allow_html=True)
 
-elif selected_page == "⚙️ Global Admin": import admin; admin.render_admin_page(supabase)
-elif selected_page == "🎰 Casino": import casino; casino.render_casino_module(supabase, profile['tenant_id'], prop_name)
-elif selected_page == "📈 Marketing": import marketing; marketing.render_marketing_module(supabase, profile['tenant_id'], prop_name)
-elif selected_page == "📢 PR": import pr; pr.render_pr_module(supabase, profile['tenant_id'], prop_name)
-elif selected_page == "📨 Email": import email_ops; email_ops.render_email_module(supabase, profile['tenant_id'], prop_name)
-elif selected_page == "🛏️ Hotel": import hotel; hotel.render_hotel_module(supabase, profile['tenant_id'], prop_name)
-elif selected_page == "🍽️ F&B": import fnb; fnb.render_fnb_module(supabase, profile['tenant_id'], prop_name)
+elif selected_page == "⚙️ Global Admin": 
+    import admin
+    admin.render_admin_page(supabase)
+elif selected_page == "🎰 Casino": 
+    import casino
+    casino.render_casino_module(supabase, profile['tenant_id'], prop_name)
+elif selected_page == "📈 Marketing": 
+    import marketing
+    marketing.render_marketing_module(supabase, profile['tenant_id'], prop_name)
+elif selected_page == "📢 PR": 
+    import pr
+    pr.render_pr_module(supabase, profile['tenant_id'], prop_name)
+elif selected_page == "📨 Email": 
+    import email_ops
+    email_ops.render_email_module(supabase, profile['tenant_id'], prop_name)
+elif selected_page == "🛏️ Hotel": 
+    import hotel
+    hotel.render_hotel_module(supabase, profile['tenant_id'], prop_name)
+elif selected_page == "🍽️ F&B": 
+    import fnb
+    fnb.render_fnb_module(supabase, profile['tenant_id'], prop_name)
 elif selected_page == "🧠 AI Advisor": 
     import ai_advisor
     query = st.session_state.get('pending_ai_query', None)
     st.session_state.pending_ai_query = None 
     ai_advisor.render_advisor_module(supabase, profile['tenant_id'], prop_name, initial_query=query)
-else: st.info("Module under construction.")
+else: 
+    st.info("Module under construction.")
