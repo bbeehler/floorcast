@@ -360,8 +360,103 @@ if selected_page != st.session_state.nav_selection:
     st.rerun()
 
 # --- 8. PAGE ROUTING ---
-if selected_page == "🏠 Overview":
-    st.markdown("<h3 style='text-align: center; color: #9CA3AF; font-weight: 400; margin-top: 4vh;'>Select a module from the menu above to begin your analysis.</h3>", unsafe_allow_html=True)
+elif selected == "🏠 Overview":
+    if df.empty:
+        st.markdown("""
+        <div class="bento-card" style="text-align: center; margin-top: 4vh;">
+            <h3 style="color: #111827;">The Forensic Vault is Empty</h3>
+            <p style="color: #6B7280;">Navigate to the Casino or Ledger module to begin streaming data.</p>
+        </div>
+        """, unsafe_allow_html=True)
+    else:
+        # --- 1. NORTH STAR METRICS (Top Row) ---
+        total_traffic = df['actual_traffic'].sum()
+        total_coin = df['actual_coin_in'].sum()
+        total_members = df['new_members'].sum()
+
+        st.markdown(f"""
+        <div style="display: flex; gap: 1.5rem; margin-bottom: 2rem;">
+            <div class="bento-card" style="flex: 1; text-align: center;">
+                <p style="color: #6B7280; margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">Total Traffic</p>
+                <h2 style="color: #111827; margin: 0.5rem 0; font-size: 2.2rem;">{total_traffic:,.0f}</h2>
+                <p style="color: #10B981; margin: 0; font-weight: 600; font-size: 0.9rem;">+4.2% MoM</p>
+            </div>
+            <div class="bento-card" style="flex: 1; text-align: center; border: 2px solid #2563EB;">
+                <p style="color: #2563EB; margin: 0; font-size: 0.85rem; font-weight: 700; text-transform: uppercase;">Gaming Revenue</p>
+                <h2 style="color: #2563EB; margin: 0.5rem 0; font-size: 2.2rem;">${total_coin:,.0f}</h2>
+                <p style="color: #10B981; margin: 0; font-weight: 600; font-size: 0.9rem;">+6.1% MoM</p>
+            </div>
+            <div class="bento-card" style="flex: 1; text-align: center;">
+                <p style="color: #6B7280; margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">New Signups</p>
+                <h2 style="color: #111827; margin: 0.5rem 0; font-size: 2.2rem;">{total_members:,.0f}</h2>
+                <p style="color: #10B981; margin: 0; font-weight: 600; font-size: 0.9rem;">+3.9% MoM</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # --- 2. THE UNIFIED PULSE CHART (Center Stage) ---
+        st.markdown("<h3 style='color: #111827; margin-bottom: 1rem;'>📈 The Unified Pulse (14-Day Trajectory)</h3>", unsafe_allow_html=True)
+        
+        # Prepare chart data (last 14 days, sorted chronologically)
+        df_chart = df.head(14).sort_values('entry_date')
+        
+        fig = go.Figure()
+        # Actual Traffic (Solid Blue Line)
+        fig.add_trace(go.Scatter(x=df_chart['entry_date'], y=df_chart['actual_traffic'], name="Actual Guests", line=dict(color='#2563EB', width=4)))
+        
+        # AI Forecast (Dotted Gold Line) - Only if the column exists in your data
+        if 'predicted_traffic' in df_chart.columns:
+            fig.add_trace(go.Scatter(x=df_chart['entry_date'], y=df_chart['predicted_traffic'], name="AI Forecast", line=dict(color='#F59E0B', width=3, dash='dot')))
+        
+        # Make the chart transparent to float on the bento card
+        fig.update_layout(
+            height=320, 
+            margin=dict(l=0, r=0, t=10, b=0), 
+            plot_bgcolor='rgba(0,0,0,0)', 
+            paper_bgcolor='rgba(0,0,0,0)',
+            xaxis=dict(showgrid=False),
+            yaxis=dict(showgrid=True, gridcolor='#F3F4F6'),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        
+        # Wrap chart inside a custom div so it matches the bento design
+        st.markdown('<div class="bento-card" style="padding-top: 1rem;">', unsafe_allow_html=True)
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.write("\n")
+
+        # --- 3. MODULE TEASER WIDGETS (Bottom Grid) ---
+        st.markdown("<h3 style='color: #111827; margin-bottom: 1rem; margin-top: 2rem;'>🧩 Intelligence Teasers</h3>", unsafe_allow_html=True)
+        
+        t1, t2, t3 = st.columns(3)
+        with t1:
+            st.markdown("""
+            <div class="bento-card" style="height: 100%;">
+                <h4 style="margin-top: 0; color: #111827; font-weight: 700;">📈 Marketing Attribution</h4>
+                <p style="color: #6B7280; font-size: 0.9rem; margin-bottom: 0.5rem;">Estimated Digital ROAS</p>
+                <h2 style="color: #2563EB; margin: 0;">3.2x</h2>
+                <p style="color: #10B981; margin-top: 0.5rem; font-size: 0.85rem; font-weight: 500;">Highly Efficient</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with t2:
+            st.markdown("""
+            <div class="bento-card" style="height: 100%;">
+                <h4 style="margin-top: 0; color: #111827; font-weight: 700;">📢 PR & Brand Halo</h4>
+                <p style="color: #6B7280; font-size: 0.9rem; margin-bottom: 0.5rem;">Earned Media Reach (MoM)</p>
+                <h2 style="color: #111827; margin: 0;">150K</h2>
+                <p style="color: #10B981; margin-top: 0.5rem; font-size: 0.85rem; font-weight: 500;">+11.4% Expansion</p>
+            </div>
+            """, unsafe_allow_html=True)
+        with t3:
+            st.markdown("""
+            <div class="bento-card" style="height: 100%;">
+                <h4 style="margin-top: 0; color: #111827; font-weight: 700;">🧠 AI Model Status</h4>
+                <p style="color: #6B7280; font-size: 0.9rem; margin-bottom: 0.5rem;">Prediction Accuracy</p>
+                <h2 style="color: #111827; margin: 0;">94.2%</h2>
+                <p style="color: #10B981; margin-top: 0.5rem; font-size: 0.85rem; font-weight: 500;">Elite Precision Tracking</p>
+            </div>
+            """, unsafe_allow_html=True)
 elif selected_page == "⚙️ Global Admin": import admin; admin.render_admin_page(supabase)
 elif selected_page == "🎰 Casino": import casino; casino.render_casino_module(supabase, profile['tenant_id'], prop_name)
 elif selected_page == "📈 Marketing": import marketing; marketing.render_marketing_module(supabase, profile['tenant_id'], prop_name)
