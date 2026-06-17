@@ -221,3 +221,214 @@ def render_marketing_module(supabase, tenant_id, property_name):
 
             except Exception as e:
                 st.error(f"Simulation Error: {e}")
+
+    # ==========================================
+    # TAB 3: BRAND SENTIMENT VAULT
+    # ==========================================
+    with tabs[2]:
+        st.markdown("<h3 style='color: #111827; margin-top: 1rem;'>Vault Research & Archival</h3>", unsafe_allow_html=True)
+        
+        # Hardcoded standard assets (can link to DB later)
+        tags = ["Overall Property", "Casino Floor", "Hotel / Lodging", "Food & Beverage", "Staff / Service"]
+
+        # --- 1. DATA ENTRY MODULES ---
+        col_input1, col_input2 = st.columns(2)
+        
+        with col_input1:
+            with st.expander("📝 Manual Sentiment Archival", expanded=False):
+                with st.form("manual_sentiment_form", clear_on_submit=True, border=False):
+                    manual_tag = st.selectbox("Assign to Asset:", tags)
+                    manual_date = st.date_input("Review Date:", value=datetime.date.today())
+                    f_text = st.text_area("Review Content", placeholder="Paste review text from Google, Yelp, or Surveys...", height=150)
+                    
+                    if st.form_submit_button("🛡️ AI Score & Vault Entry", use_container_width=True):
+                        if f_text:
+                            with st.spinner("Analyzing sentiment..."):
+                                if archive_sentiment_entry(f_text, manual_tag, manual_date, tenant_id, supabase):
+                                    st.success("Entry Scored & Vaulted.")
+                                    time.sleep(1)
+                                    st.rerun()
+
+        with col_input2:
+            with st.expander("📄 Intelligence Bulk Loader (.docx)", expanded=False):
+                if not DOCX_AVAILABLE:
+                    st.error("System Dependency Missing: Run `pip install python-docx` in your environment to unlock the bulk loader.")
+                else:
+                    uploaded_doc = st.file_uploader("Upload .docx Source", type="docx")
+                    bulk_tag = st.selectbox("Bulk Assign to Asset:", tags)
+                    bulk_date = st.date_input("Bulk Review Date:", value=datetime.date.today(), key="bulk_date")
+                    
+                    if uploaded_doc and st.button("🚀 Execute Bulk AI Parse", use_container_width=True):
+                        doc = Document(uploaded_doc)
+                        valid_paragraphs = []
+                        
+                        # Extract Text
+                        for para in doc.paragraphs:
+                            clean_text = para.text.strip()
+                            if len(clean_text) > 20: valid_paragraphs.append(clean_text)
+                                
+                        for table in doc.tables:
+                            for row in table.rows:
+                                for cell in row.cells:
+                                    clean_text = cell.text.strip()
+                                    if len(clean_text) > 20 and clean_text not in valid_paragraphs:
+                                        valid_paragraphs.append(clean_text)
+                        
+                        total_paras = len(valid_paragraphs)
+                        
+                        if total_paras > 0:
+                            success_count, fail_count = 0, 0
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
+                            
+                            for idx, text in enumerate(valid_paragraphs):
+                                status_text.text(f"Analyzing & Vaulting entry {idx + 1} of {total_paras}...")
+                                if archive_sentiment_entry(text, bulk_tag, bulk_date, tenant_id, supabase):
+                                    success_count += 1
+                                else:
+                                    fail_count += 1
+                                
+                                progress_bar.progress((idx + 1) / total_paras)
+                                time.sleep(1.5) # Throttle to respect Gemini API limits
+                                
+                            status_text.empty()
+                            progress_bar.empty()
+                            
+                            if success_count > 0: st.success(f"✅ Vaulting Complete: {success_count} entries scored.")
+                            if fail_count > 0: st.error(f"⚠️ {fail_count} entries failed API analysis.")
+                        else:
+                            st.warning("No valid review text found in document.")
+
+        st.divider()
+
+        # --- 2. SENTIMENT VAULT RESEARCH FILTERS ---
+        f1, f2, f3, f4 = st.columns([1.5, 1, 1.2, 1])
+        with f1: search_query = st.text_input("Search Content", placeholder="Keyword search...")
+        with f2: filter_asset = st.selectbox("Asset Filter", ["All Assets"] + tags)
+        with f3: 
+            today = datetime.date.today()
+            date_range = st.date_input("Audit Window", value=(today - datetime.timedelta(days=30), today))
+        with f4: filter_cat = st.selectbox("Category", ["All", "Positive", "Neutral", "Negative"])
+
+        # --- 3. FETCH AND PROCESS DATA ---
+        query = supabase.table("mt_sentiment_history").select("*").eq("tenant_id", tenant_id)
+        if filter_asset != "All Assets": query = query.eq("asset", filter_asset)
+        if filter_cat != "All": query = query.eq("sentiment_category", filter_cat)
+        if isinstance(date_range, tuple) and len(date_range) == 2:
+            query = query.gte("timestamp", date_range[0].isoformat()).lte("timestamp", f"{date_range[1].isoformat()}T23:59:59")
+        
+        res = query.order("timestamp", desc=True).execute()
+
+        if res.data:
+            df_vault = pd.DataFrame(res.data)
+            if search_query:
+                df_vault = df_vault[df_vault['raw_text'].str.contains(search_query, case=False)]
+
+            if not df_vault.empty:
+                df_vault['sentiment_score'] = pd.to_numeric(df_vault['sentiment_score'], errors='coerce').fillna(0.0)
+
+                # --- 4. BENTO METRICS ---
+                total_reviews = len(df_vault)
+                pos_count = len(df_vault[df_vault['sentiment_category'] == 'Positive'])
+                neg_count = len(df_vault[df_vault['sentiment_category'] == 'Negative'])
+
+                st.markdown(f"""
+                <div style="display: flex; gap: 1.5rem; margin-bottom: 2rem; margin-top: 1rem;">
+                    <div class="bento-card" style="flex: 1; text-align: center;">
+                        <p style="color: #6B7280; margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">Total Vault Volume</p>
+                        <h2 style="color: #111827; margin: 0.5rem 0; font-size: 2.2rem;">{total_reviews:,}</h2>
+                    </div>
+                    <div class="bento-card" style="flex: 1; text-align: center; border-bottom: 4px solid #10B981;">
+                        <p style="color: #10B981; margin: 0; font-size: 0.85rem; font-weight: 700; text-transform: uppercase;">Positive Nodes</p>
+                        <h2 style="color: #111827; margin: 0.5rem 0; font-size: 2.2rem;">{pos_count:,}</h2>
+                    </div>
+                    <div class="bento-card" style="flex: 1; text-align: center; border-bottom: 4px solid #EF4444;">
+                        <p style="color: #EF4444; margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">Critical Nodes</p>
+                        <h2 style="color: #111827; margin: 0.5rem 0; font-size: 2.2rem;">{neg_count:,}</h2>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+                # --- 5. VISUAL ASSET GAUGES ---
+                st.markdown("<h4 style='color: #111827; margin-bottom: 1rem;'>Asset Pulse (Average Score)</h4>", unsafe_allow_html=True)
+                
+                # Get unique assets present in the current filtered view
+                active_assets = df_vault['asset'].unique()
+                
+                # Determine how many columns to draw (max 5 so it doesn't get crowded)
+                num_cols = min(len(active_assets), 5)
+                g_cols = st.columns(num_cols)
+                
+                for i, asset_name in enumerate(active_assets[:5]):
+                    # Calculate the mean score for this specific asset
+                    asset_score = df_vault[df_vault['asset'] == asset_name]['sentiment_score'].mean()
+                    
+                    fig_gauge = go.Figure(go.Indicator(
+                        mode="gauge+number",
+                        value=asset_score,
+                        number={'font': {'size': 24, 'color': '#111827'}, 'valueformat': "+.2f"},
+                        gauge={
+                            'axis': {'range': [-1, 1], 'tickwidth': 1, 'tickcolor': "#E5E7EB"},
+                            'bar': {'color': "#111827"},
+                            'steps': [
+                                {'range': [-1, -0.3], 'color': "#FCA5A5"}, # Red/Negative Zone
+                                {'range': [-0.3, 0.3], 'color': "#F3F4F6"}, # Gray/Neutral Zone
+                                {'range': [0.3, 1], 'color': "#A7F3D0"}    # Green/Positive Zone
+                            ],
+                        }
+                    ))
+                    
+                    fig_gauge.update_layout(
+                        height=160, 
+                        margin=dict(l=10, r=10, t=10, b=10), 
+                        paper_bgcolor='rgba(0,0,0,0)', 
+                        font={'family': "Inter, sans-serif"}
+                    )
+                    
+                    with g_cols[i]:
+                        st.markdown(f"""
+                        <div class='bento-card' style='padding: 1rem; text-align: center; height: 100%;'>
+                            <p style='color: #6B7280; margin: 0 0 10px 0; font-size: 0.8rem; font-weight: 700; text-transform: uppercase;'>{asset_name}</p>
+                        """, unsafe_allow_html=True)
+                        st.plotly_chart(fig_gauge, use_container_width=True, config={'displayModeBar': False})
+                        st.markdown("</div>", unsafe_allow_html=True)
+
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                # --- 6. THE FEED ---
+                st.markdown("<h4 style='color: #111827;'>Recent Feedback</h4>", unsafe_allow_html=True)
+                
+                # Limit rendering to 50 for performance
+                for _, row in df_vault.head(50).iterrows():
+                    cat = row.get('sentiment_category', 'Neutral')
+                    score = float(row.get('sentiment_score', 0.0))
+                    
+                    # Convert -1 to +1 score into a 0 to 100 percentage for the visual progress bar
+                    bar_pct = ((score + 1) / 2) * 100
+                    
+                    if cat == "Positive": color = "#10B981" # Green
+                    elif cat == "Negative": color = "#EF4444" # Red
+                    else: color = "#F59E0B" # Gold
+                    
+                    st.markdown(f"""
+                    <div class="bento-card" style="margin-bottom: 1rem; padding: 1.5rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                            <div style="flex: 4; padding-right: 2rem;">
+                                <span style="background-color: #F3F4F6; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; color: #4B5563;">{row.get('asset')}</span>
+                                <span style="color: #9CA3AF; font-size: 0.8rem; margin-left: 0.5rem;">{str(row.get('timestamp'))[:10]}</span>
+                                <p style="color: #1F2937; margin-top: 0.8rem; line-height: 1.5;">"{row.get('raw_text')}"</p>
+                            </div>
+                            <div style="flex: 1; text-align: right;">
+                                <p style="color: {color}; font-weight: 700; font-size: 1.2rem; margin: 0;">{score:+.2f}</p>
+                                <p style="color: #6B7280; font-size: 0.8rem; margin: 0 0 0.5rem 0; text-transform: uppercase;">{cat}</p>
+                                <div style="width: 100%; background-color: #E5E7EB; border-radius: 4px; height: 6px;">
+                                    <div style="width: {bar_pct}%; background-color: {color}; height: 100%; border-radius: 4px;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            else:
+                st.info("No records match your search criteria.")
+        else:
+            st.info("The Sentiment Vault is empty. Upload a document or manually enter a review to begin.")
