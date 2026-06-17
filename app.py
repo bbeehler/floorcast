@@ -160,24 +160,44 @@ if 'authenticated' not in st.session_state: st.session_state.authenticated = Fal
 if 'user_profile' not in st.session_state: st.session_state.user_profile = None
 if 'active_modules' not in st.session_state: st.session_state.active_modules = []
 
-# --- DATA FETCHING ENGINE ---
-def get_forensic_metrics(db_client, user_prof):
-    """Fetches the last 30 days of ledger data for the active tenant."""
+# --- DATA FETCHING & AI FORECASTING ENGINE ---
+def get_forensic_metrics(db_client, user_prof, target_start, target_end):
+    """Fetches historical data and projects AI predictions across any requested timeline."""
     if not user_prof or 'tenant_id' not in user_prof:
         return pd.DataFrame()
     
     try:
         tenant_id = user_prof['tenant_id']
-        res = db_client.table("mt_ledger").select("*").eq("tenant_id", tenant_id).order("entry_date", desc=True).limit(30).execute()
         
-        if res.data:
-            df_ledger = pd.DataFrame(res.data)
-            df_ledger['entry_date'] = pd.to_datetime(df_ledger['entry_date'])
-            return df_ledger
+        # 1. Fetch Historical Actuals (Always grab the latest 90 days to build the baseline model)
+        res = db_client.table("mt_ledger").select("*").eq("tenant_id", tenant_id).order("entry_date", desc=True).limit(90).execute()
+        if not res.data: return pd.DataFrame()
+        
+        df_raw = pd.DataFrame(res.data)
+        df_raw['entry_date'] = pd.to_datetime(df_raw['entry_date'])
+        
+        # 2. Establish AI Baselines (Median traffic by Day of Week)
+        df_raw['dow'] = df_raw['entry_date'].dt.day_name()
+        dow_medians = df_raw[df_raw['actual_traffic'] > 0].groupby('dow')['actual_traffic'].median().to_dict()
+        
+        # 3. Create the master timeline STRICTLY based on the user's selected window
+        date_range = pd.date_range(start=target_start, end=target_end)
+        
+        master_df = pd.DataFrame({'entry_date': date_range})
+        master_df['dow'] = master_df['entry_date'].dt.day_name()
+        
+        # 4. Generate the Forecast across the requested timeline
+        master_df['predicted_traffic'] = master_df['dow'].map(dow_medians).fillna(1500)
+        
+        # 5. Merge the Actuals over the timeline (future dates will simply remain blank for actuals)
+        df_actuals = df_raw[['entry_date', 'actual_traffic', 'actual_coin_in', 'new_members']]
+        master_df = pd.merge(master_df, df_actuals, on='entry_date', how='left')
+        
+        return master_df
+
     except Exception as e:
-        st.error(f"Failed to fetch ledger data: {e}")
-        
-    return pd.DataFrame()
+        st.error(f"AI Engine Error: {e}")
+        return pd.DataFrame()
 
 # --- 4. STRIPE CHECKOUT ENGINE ---
 def create_checkout_session(price_id):
@@ -384,8 +404,36 @@ if selected_page != st.session_state.nav_selection:
 # Ensure your data is fetched before the routing begins
 df = get_forensic_metrics(supabase, profile) 
 
+# --- 8. PAGE ROUTING ---
 if selected_page == "🏠 Overview":
-    if df.empty:
+    import datetime
+    import plotly.graph_objects as go
+    
+    # --- 1. UNBOUNDED DATE RANGE SELECTOR ---
+    today = datetime.date.today()
+    default_start = today - datetime.timedelta(days=30)
+    default_future = today + datetime.timedelta(days=14)
+    
+    d_col1, d_col2 = st.columns([1, 3])
+    with d_col1:
+        audit_window = st.date_input(
+            "📅 Audit & Forecast Window", 
+            value=(default_start, default_future), 
+            key="overview_window"
+        )
+    st.write("\n")
+    
+    # Safely unpack dates
+    if isinstance(audit_window, tuple) and len(audit_window) == 2:
+        start_date, end_date = audit_window
+    else:
+        start_date, end_date = default_start, default_future
+
+    # --- 2. RUN THE AI ENGINE ---
+    # We now pass the user's exact dates to build the specific timeline
+    df_filtered = get_forensic_metrics(supabase, profile, start_date, end_date)
+
+    if df_filtered.empty:
         st.markdown("""
         <div class="bento-card" style="text-align: center; margin-top: 4vh;">
             <h3 style="color: #111827;">The Forensic Vault is Empty</h3>
@@ -393,32 +441,7 @@ if selected_page == "🏠 Overview":
         </div>
         """, unsafe_allow_html=True)
     else:
-        import datetime
-        import plotly.graph_objects as go
-        
-        # --- NEW: DATE RANGE SELECTOR ---
-        today = datetime.date.today()
-        last_30 = today - datetime.timedelta(days=30)
-        
-        d_col1, d_col2 = st.columns([1, 3])
-        with d_col1:
-            audit_window = st.date_input(
-                "📅 Audit Window", 
-                value=(last_30, today), 
-                key="overview_window"
-            )
-        st.write("\n")
-        
-        # Filter the dataframe based on selection
-        if isinstance(audit_window, tuple) and len(audit_window) == 2:
-            start_date, end_date = audit_window
-            mask = (df['entry_date'].dt.date >= start_date) & (df['entry_date'].dt.date <= end_date)
-            df_filtered = df.loc[mask].copy()
-        else:
-            df_filtered = df.copy()
-
-        # --- 1. NORTH STAR METRICS (Top Row) ---
-        # Updated to use df_filtered instead of raw df
+        # --- 3. NORTH STAR METRICS (Top Row) ---
         total_traffic = df_filtered['actual_traffic'].sum()
         total_coin = df_filtered['actual_coin_in'].sum()
         total_members = df_filtered['new_members'].sum()
@@ -428,32 +451,29 @@ if selected_page == "🏠 Overview":
             <div class="bento-card" style="flex: 1; text-align: center;">
                 <p style="color: #6B7280; margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">Total Traffic</p>
                 <h2 style="color: #111827; margin: 0.5rem 0; font-size: 2.2rem;">{total_traffic:,.0f}</h2>
-                <p style="color: #10B981; margin: 0; font-weight: 600; font-size: 0.9rem;">+4.2% MoM</p>
             </div>
             <div class="bento-card" style="flex: 1; text-align: center; border: 2px solid #2563EB;">
                 <p style="color: #2563EB; margin: 0; font-size: 0.85rem; font-weight: 700; text-transform: uppercase;">Gaming Revenue</p>
                 <h2 style="color: #2563EB; margin: 0.5rem 0; font-size: 2.2rem;">${total_coin:,.0f}</h2>
-                <p style="color: #10B981; margin: 0; font-weight: 600; font-size: 0.9rem;">+6.1% MoM</p>
             </div>
             <div class="bento-card" style="flex: 1; text-align: center;">
                 <p style="color: #6B7280; margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">New Signups</p>
                 <h2 style="color: #111827; margin: 0.5rem 0; font-size: 2.2rem;">{total_members:,.0f}</h2>
-                <p style="color: #10B981; margin: 0; font-weight: 600; font-size: 0.9rem;">+3.9% MoM</p>
             </div>
         </div>
         """, unsafe_allow_html=True)
 
-        # --- 2. THE UNIFIED PULSE CHART (Center Stage) ---
+        # --- 4. THE UNIFIED PULSE CHART (Center Stage) ---
         st.markdown("<h3 style='color: #111827; margin-bottom: 1rem;'>📈 The Unified Pulse</h3>", unsafe_allow_html=True)
         
-        # Prepare chart data (Filtered dynamically, no longer locked to 14 days)
+        # Sort chronologically for the chart
         df_chart = df_filtered.sort_values('entry_date')
         
         fig = go.Figure()
         # Actual Traffic (Solid Blue Line)
         fig.add_trace(go.Scatter(x=df_chart['entry_date'], y=df_chart['actual_traffic'], name="Actual Guests", line=dict(color='#2563EB', width=4)))
         
-        # AI Forecast (Dotted Gold Line) - Only if the column exists in your data
+        # AI Forecast (Dotted Gold Line)
         if 'predicted_traffic' in df_chart.columns:
             fig.add_trace(go.Scatter(x=df_chart['entry_date'], y=df_chart['predicted_traffic'], name="AI Forecast", line=dict(color='#F59E0B', width=3, dash='dot')))
         
@@ -475,7 +495,7 @@ if selected_page == "🏠 Overview":
         
         st.write("\n")
 
-        # --- 3. MODULE TEASER WIDGETS (Bottom Grid) ---
+        # --- 5. MODULE TEASER WIDGETS (Bottom Grid) ---
         st.markdown("<h3 style='color: #111827; margin-bottom: 1rem; margin-top: 2rem;'>🧩 Intelligence Teasers</h3>", unsafe_allow_html=True)
         
         t1, t2, t3 = st.columns(3)
@@ -506,6 +526,8 @@ if selected_page == "🏠 Overview":
                 <p style="color: #10B981; margin-top: 0.5rem; font-size: 0.85rem; font-weight: 500;">Elite Precision Tracking</p>
             </div>
             """, unsafe_allow_html=True)
+
+# ... (the rest of your `elif selected_page == "⚙️ Global Admin":` routing remains the same below)
 
 elif selected_page == "⚙️ Global Admin": 
     import admin
