@@ -400,11 +400,6 @@ if selected_page != st.session_state.nav_selection:
     st.rerun()
 
 # --- 8. PAGE ROUTING ---
-
-# Ensure your data is fetched before the routing begins
-df = get_forensic_metrics(supabase, profile) 
-
-# --- 8. PAGE ROUTING ---
 if selected_page == "🏠 Overview":
     import datetime
     import plotly.graph_objects as go
