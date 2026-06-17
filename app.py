@@ -450,6 +450,7 @@ if selected_page == "🏠 Overview":
     cp_total_traf = cp_gaming_traf + cp_fnb_traf + cp_hotel_traf
     
     cp_yield = cp_total_rev / cp_total_traf if cp_total_traf > 0 else 0
+    cp_signups = fetch_sum("mt_ledger", "entry_date", "new_members", start_date, end_date)
 
     # PREVIOUS PERIOD MATH (For the +/- Delta)
     pp_gaming_rev = fetch_sum("mt_ledger", "entry_date", "actual_coin_in", pp_start, pp_end)
@@ -463,6 +464,7 @@ if selected_page == "🏠 Overview":
     pp_total_traf = pp_gaming_traf + pp_fnb_traf + pp_hotel_traf
     
     pp_yield = pp_total_rev / pp_total_traf if pp_total_traf > 0 else 0
+    pp_signups = fetch_sum("mt_ledger", "entry_date", "new_members", pp_start, pp_end)
 
     # Calculate True Percentages
     def calc_pct(cp, pp):
@@ -473,13 +475,14 @@ if selected_page == "🏠 Overview":
     rev_pct = calc_pct(cp_total_rev, pp_total_rev)
     traf_pct = calc_pct(cp_total_traf, pp_total_traf)
     yield_pct = calc_pct(cp_yield, pp_yield)
+    signups_pct = calc_pct(cp_signups, pp_signups)
 
     def format_delta(pct):
         color = "#10B981" if pct >= 0 else "#EF4444" # Green if up, Red if down
         sign = "+" if pct >= 0 else ""
         return f'<p style="color: {color}; margin: 0; font-weight: 600; font-size: 0.9rem;">{sign}{pct:.1f}% vs Prior Period</p>'
 
-    # --- 3. NORTH STAR METRICS (Top Row) ---
+    # --- 3. NORTH STAR METRICS (Top Row - 4 Cards) ---
     st.markdown(f"""
     <div style="display: flex; gap: 1.5rem; margin-bottom: 2rem;">
         <div class="bento-card" style="flex: 1; text-align: center;">
@@ -497,13 +500,18 @@ if selected_page == "🏠 Overview":
             <h2 style="color: #111827; margin: 0.5rem 0; font-size: 2.2rem;">${cp_yield:,.2f}</h2>
             {format_delta(yield_pct)}
         </div>
+        <div class="bento-card" style="flex: 1; text-align: center;">
+            <p style="color: #6B7280; margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">New Signups</p>
+            <h2 style="color: #111827; margin: 0.5rem 0; font-size: 2.2rem;">{cp_signups:,.0f}</h2>
+            {format_delta(signups_pct)}
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
     # --- 4. THE UNIFIED PULSE CHART (Center Stage) ---
     st.markdown("<h3 style='color: #111827; margin-bottom: 1rem;'>📈 The Unified Pulse</h3>", unsafe_allow_html=True)
     
-    # Run the AI engine to build the dynamic timeline based on selected dates
+    # We still run the AI engine specifically to chart the Gaming/Ledger forecast timeline
     df_filtered = get_forensic_metrics(supabase, profile, start_date, end_date)
     
     if not df_filtered.empty:
