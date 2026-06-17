@@ -21,7 +21,7 @@ def archive_sentiment_entry(text, asset_tag, review_date, tenant_id, supabase):
     """Passes review text to Gemini to generate a sentiment score and vaults it."""
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         
         prompt = f"Analyze the sentiment of this guest review. Return ONLY a single float between -1.0 (extremely negative) and 1.0 (extremely positive). Review: {text}"
         res = model.generate_content(prompt)
