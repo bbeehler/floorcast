@@ -402,6 +402,7 @@ if selected_page != st.session_state.nav_selection:
 # --- 8. PAGE ROUTING ---
 if selected_page == "🏠 Overview":
     import datetime
+    import pandas as pd
     import plotly.graph_objects as go
     
     # --- 1. UNBOUNDED DATE RANGE SELECTOR ---
@@ -424,49 +425,93 @@ if selected_page == "🏠 Overview":
     else:
         start_date, end_date = default_start, default_future
 
-    # --- 2. RUN THE AI ENGINE ---
-    # We now pass the user's exact dates to build the specific timeline
+    # Calculate Previous Period (PoP) for True Deltas
+    delta_days = (end_date - start_date).days + 1
+    pp_end = start_date - datetime.timedelta(days=1)
+    pp_start = pp_end - datetime.timedelta(days=delta_days - 1)
+
+    # --- 2. DATA AGGREGATION (GRAND TOTALS ACROSS ALL MODULES) ---
+    tenant_id = profile['tenant_id']
+    
+    # Helper function to fetch and sum specific columns safely
+    def fetch_sum(table, date_col, sum_col, s_date, e_date):
+        res = supabase.table(table).select(sum_col).eq("tenant_id", tenant_id).gte(date_col, str(s_date)).lte(date_col, str(e_date)).execute()
+        return sum(x[sum_col] for x in res.data if x.get(sum_col)) if res.data else 0
+
+    # CURRENT PERIOD MATH
+    cp_gaming_rev = fetch_sum("mt_ledger", "entry_date", "actual_coin_in", start_date, end_date)
+    cp_fnb_rev = fetch_sum("mt_fnb_ledger", "audit_date", "total_revenue", start_date, end_date)
+    cp_hotel_rev = fetch_sum("mt_hotel_ledger", "audit_date", "room_revenue", start_date, end_date)
+    cp_total_rev = cp_gaming_rev + cp_fnb_rev + cp_hotel_rev
+
+    cp_gaming_traf = fetch_sum("mt_ledger", "entry_date", "actual_traffic", start_date, end_date)
+    cp_fnb_traf = fetch_sum("mt_fnb_ledger", "audit_date", "total_covers", start_date, end_date)
+    cp_hotel_traf = fetch_sum("mt_hotel_ledger", "audit_date", "rooms_sold", start_date, end_date)
+    cp_total_traf = cp_gaming_traf + cp_fnb_traf + cp_hotel_traf
+    
+    cp_yield = cp_total_rev / cp_total_traf if cp_total_traf > 0 else 0
+
+    # PREVIOUS PERIOD MATH (For the +/- Delta)
+    pp_gaming_rev = fetch_sum("mt_ledger", "entry_date", "actual_coin_in", pp_start, pp_end)
+    pp_fnb_rev = fetch_sum("mt_fnb_ledger", "audit_date", "total_revenue", pp_start, pp_end)
+    pp_hotel_rev = fetch_sum("mt_hotel_ledger", "audit_date", "room_revenue", pp_start, pp_end)
+    pp_total_rev = pp_gaming_rev + pp_fnb_rev + pp_hotel_rev
+
+    pp_gaming_traf = fetch_sum("mt_ledger", "entry_date", "actual_traffic", pp_start, pp_end)
+    pp_fnb_traf = fetch_sum("mt_fnb_ledger", "audit_date", "total_covers", pp_start, pp_end)
+    pp_hotel_traf = fetch_sum("mt_hotel_ledger", "audit_date", "rooms_sold", pp_start, pp_end)
+    pp_total_traf = pp_gaming_traf + pp_fnb_traf + pp_hotel_traf
+    
+    pp_yield = pp_total_rev / pp_total_traf if pp_total_traf > 0 else 0
+
+    # Calculate True Percentages
+    def calc_pct(cp, pp):
+        if pp == 0 and cp > 0: return 100.0
+        if pp == 0 and cp == 0: return 0.0
+        return ((cp - pp) / pp) * 100.0
+
+    rev_pct = calc_pct(cp_total_rev, pp_total_rev)
+    traf_pct = calc_pct(cp_total_traf, pp_total_traf)
+    yield_pct = calc_pct(cp_yield, pp_yield)
+
+    def format_delta(pct):
+        color = "#10B981" if pct >= 0 else "#EF4444" # Green if up, Red if down
+        sign = "+" if pct >= 0 else ""
+        return f'<p style="color: {color}; margin: 0; font-weight: 600; font-size: 0.9rem;">{sign}{pct:.1f}% vs Prior Period</p>'
+
+    # --- 3. NORTH STAR METRICS (Top Row) ---
+    st.markdown(f"""
+    <div style="display: flex; gap: 1.5rem; margin-bottom: 2rem;">
+        <div class="bento-card" style="flex: 1; text-align: center;">
+            <p style="color: #6B7280; margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">Total Property Traffic</p>
+            <h2 style="color: #111827; margin: 0.5rem 0; font-size: 2.2rem;">{cp_total_traf:,.0f}</h2>
+            {format_delta(traf_pct)}
+        </div>
+        <div class="bento-card" style="flex: 1; text-align: center; border: 2px solid #2563EB;">
+            <p style="color: #2563EB; margin: 0; font-size: 0.85rem; font-weight: 700; text-transform: uppercase;">Grand Total Revenue</p>
+            <h2 style="color: #2563EB; margin: 0.5rem 0; font-size: 2.2rem;">${cp_total_rev:,.0f}</h2>
+            {format_delta(rev_pct)}
+        </div>
+        <div class="bento-card" style="flex: 1; text-align: center;">
+            <p style="color: #6B7280; margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">Property Yield / Guest</p>
+            <h2 style="color: #111827; margin: 0.5rem 0; font-size: 2.2rem;">${cp_yield:,.2f}</h2>
+            {format_delta(yield_pct)}
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # --- 4. THE UNIFIED PULSE CHART (Center Stage) ---
+    st.markdown("<h3 style='color: #111827; margin-bottom: 1rem;'>📈 The Unified Pulse</h3>", unsafe_allow_html=True)
+    
+    # Run the AI engine to build the dynamic timeline based on selected dates
     df_filtered = get_forensic_metrics(supabase, profile, start_date, end_date)
-
-    if df_filtered.empty:
-        st.markdown("""
-        <div class="bento-card" style="text-align: center; margin-top: 4vh;">
-            <h3 style="color: #111827;">The Forensic Vault is Empty</h3>
-            <p style="color: #6B7280;">Navigate to the Casino or Ledger module to begin streaming data.</p>
-        </div>
-        """, unsafe_allow_html=True)
-    else:
-        # --- 3. NORTH STAR METRICS (Top Row) ---
-        total_traffic = df_filtered['actual_traffic'].sum()
-        total_coin = df_filtered['actual_coin_in'].sum()
-        total_members = df_filtered['new_members'].sum()
-
-        st.markdown(f"""
-        <div style="display: flex; gap: 1.5rem; margin-bottom: 2rem;">
-            <div class="bento-card" style="flex: 1; text-align: center;">
-                <p style="color: #6B7280; margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">Total Traffic</p>
-                <h2 style="color: #111827; margin: 0.5rem 0; font-size: 2.2rem;">{total_traffic:,.0f}</h2>
-            </div>
-            <div class="bento-card" style="flex: 1; text-align: center; border: 2px solid #2563EB;">
-                <p style="color: #2563EB; margin: 0; font-size: 0.85rem; font-weight: 700; text-transform: uppercase;">Gaming Revenue</p>
-                <h2 style="color: #2563EB; margin: 0.5rem 0; font-size: 2.2rem;">${total_coin:,.0f}</h2>
-            </div>
-            <div class="bento-card" style="flex: 1; text-align: center;">
-                <p style="color: #6B7280; margin: 0; font-size: 0.85rem; font-weight: 600; text-transform: uppercase;">New Signups</p>
-                <h2 style="color: #111827; margin: 0.5rem 0; font-size: 2.2rem;">{total_members:,.0f}</h2>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-        # --- 4. THE UNIFIED PULSE CHART (Center Stage) ---
-        st.markdown("<h3 style='color: #111827; margin-bottom: 1rem;'>📈 The Unified Pulse</h3>", unsafe_allow_html=True)
-        
-        # Sort chronologically for the chart
+    
+    if not df_filtered.empty:
         df_chart = df_filtered.sort_values('entry_date')
         
         fig = go.Figure()
         # Actual Traffic (Solid Blue Line)
-        fig.add_trace(go.Scatter(x=df_chart['entry_date'], y=df_chart['actual_traffic'], name="Actual Guests", line=dict(color='#2563EB', width=4)))
+        fig.add_trace(go.Scatter(x=df_chart['entry_date'], y=df_chart['actual_traffic'], name="Casino Guests", line=dict(color='#2563EB', width=4)))
         
         # AI Forecast (Dotted Gold Line)
         if 'predicted_traffic' in df_chart.columns:
@@ -483,46 +528,50 @@ if selected_page == "🏠 Overview":
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
         
-        # Wrap chart inside a custom div so it matches the bento design
         st.markdown('<div class="bento-card" style="padding-top: 1rem;">', unsafe_allow_html=True)
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
         st.markdown('</div>', unsafe_allow_html=True)
+    else:
+        st.markdown("""
+        <div class="bento-card" style="text-align: center; margin-top: 2vh;">
+            <h4 style="color: #111827;">Insufficient Timeline Data</h4>
+            <p style="color: #6B7280;">Adjust your dates or ensure the Forensic Vault contains ledger entries.</p>
+        </div>
+        """, unsafe_allow_html=True)
         
-        st.write("\n")
+    st.write("\n")
 
-        # --- 5. MODULE TEASER WIDGETS (Bottom Grid) ---
-        st.markdown("<h3 style='color: #111827; margin-bottom: 1rem; margin-top: 2rem;'>🧩 Intelligence Teasers</h3>", unsafe_allow_html=True)
-        
-        t1, t2, t3 = st.columns(3)
-        with t1:
-            st.markdown("""
-            <div class="bento-card" style="height: 100%;">
-                <h4 style="margin-top: 0; color: #111827; font-weight: 700;">📈 Marketing Attribution</h4>
-                <p style="color: #6B7280; font-size: 0.9rem; margin-bottom: 0.5rem;">Estimated Digital ROAS</p>
-                <h2 style="color: #2563EB; margin: 0;">3.2x</h2>
-                <p style="color: #10B981; margin-top: 0.5rem; font-size: 0.85rem; font-weight: 500;">Highly Efficient</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with t2:
-            st.markdown("""
-            <div class="bento-card" style="height: 100%;">
-                <h4 style="margin-top: 0; color: #111827; font-weight: 700;">📢 PR & Brand Halo</h4>
-                <p style="color: #6B7280; font-size: 0.9rem; margin-bottom: 0.5rem;">Earned Media Reach (MoM)</p>
-                <h2 style="color: #111827; margin: 0;">150K</h2>
-                <p style="color: #10B981; margin-top: 0.5rem; font-size: 0.85rem; font-weight: 500;">+11.4% Expansion</p>
-            </div>
-            """, unsafe_allow_html=True)
-        with t3:
-            st.markdown("""
-            <div class="bento-card" style="height: 100%;">
-                <h4 style="margin-top: 0; color: #111827; font-weight: 700;">🧠 AI Model Status</h4>
-                <p style="color: #6B7280; font-size: 0.9rem; margin-bottom: 0.5rem;">Prediction Accuracy</p>
-                <h2 style="color: #111827; margin: 0;">94.2%</h2>
-                <p style="color: #10B981; margin-top: 0.5rem; font-size: 0.85rem; font-weight: 500;">Elite Precision Tracking</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-# ... (the rest of your `elif selected_page == "⚙️ Global Admin":` routing remains the same below)
+    # --- 5. MODULE TEASER WIDGETS (Bottom Grid) ---
+    st.markdown("<h3 style='color: #111827; margin-bottom: 1rem; margin-top: 2rem;'>🧩 Intelligence Teasers</h3>", unsafe_allow_html=True)
+    
+    t1, t2, t3 = st.columns(3)
+    with t1:
+        st.markdown("""
+        <div class="bento-card" style="height: 100%;">
+            <h4 style="margin-top: 0; color: #111827; font-weight: 700;">📈 Marketing Attribution</h4>
+            <p style="color: #6B7280; font-size: 0.9rem; margin-bottom: 0.5rem;">Estimated Digital ROAS</p>
+            <h2 style="color: #2563EB; margin: 0;">3.2x</h2>
+            <p style="color: #10B981; margin-top: 0.5rem; font-size: 0.85rem; font-weight: 500;">Highly Efficient</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with t2:
+        st.markdown("""
+        <div class="bento-card" style="height: 100%;">
+            <h4 style="margin-top: 0; color: #111827; font-weight: 700;">📢 PR & Brand Halo</h4>
+            <p style="color: #6B7280; font-size: 0.9rem; margin-bottom: 0.5rem;">Earned Media Reach (MoM)</p>
+            <h2 style="color: #111827; margin: 0;">150K</h2>
+            <p style="color: #10B981; margin-top: 0.5rem; font-size: 0.85rem; font-weight: 500;">+11.4% Expansion</p>
+        </div>
+        """, unsafe_allow_html=True)
+    with t3:
+        st.markdown("""
+        <div class="bento-card" style="height: 100%;">
+            <h4 style="margin-top: 0; color: #111827; font-weight: 700;">🧠 AI Model Status</h4>
+            <p style="color: #6B7280; font-size: 0.9rem; margin-bottom: 0.5rem;">Prediction Accuracy</p>
+            <h2 style="color: #111827; margin: 0;">94.2%</h2>
+            <p style="color: #10B981; margin-top: 0.5rem; font-size: 0.85rem; font-weight: 500;">Elite Precision Tracking</p>
+        </div>
+        """, unsafe_allow_html=True)
 
 elif selected_page == "⚙️ Global Admin": 
     import admin
