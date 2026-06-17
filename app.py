@@ -159,6 +159,25 @@ if 'authenticated' not in st.session_state: st.session_state.authenticated = Fal
 if 'user_profile' not in st.session_state: st.session_state.user_profile = None
 if 'active_modules' not in st.session_state: st.session_state.active_modules = []
 
+# --- DATA FETCHING ENGINE ---
+def get_forensic_metrics(db_client, user_prof):
+    """Fetches the last 30 days of ledger data for the active tenant."""
+    if not user_prof or 'tenant_id' not in user_prof:
+        return pd.DataFrame()
+    
+    try:
+        tenant_id = user_prof['tenant_id']
+        res = db_client.table("mt_ledger").select("*").eq("tenant_id", tenant_id).order("entry_date", desc=True).limit(30).execute()
+        
+        if res.data:
+            df_ledger = pd.DataFrame(res.data)
+            df_ledger['entry_date'] = pd.to_datetime(df_ledger['entry_date'])
+            return df_ledger
+    except Exception as e:
+        st.error(f"Failed to fetch ledger data: {e}")
+        
+    return pd.DataFrame()
+
 # --- 4. STRIPE CHECKOUT ENGINE ---
 def create_checkout_session(price_id):
     try:
@@ -361,10 +380,10 @@ if selected_page != st.session_state.nav_selection:
 
 # --- 8. PAGE ROUTING ---
 
-# Ensure your data is fetched before the routing begins so the Overview can read it
-df = get_forensic_metrics() 
+# Ensure your data is fetched before the routing begins
+df = get_forensic_metrics(supabase, profile) 
 
-if selected_page == "🏠 Overview":  # <-- FIXED: changed 'elif' to 'if' and 'selected' to 'selected_page'
+if selected_page == "🏠 Overview":
     if df.empty:
         st.markdown("""
         <div class="bento-card" style="text-align: center; margin-top: 4vh;">
