@@ -1,5 +1,6 @@
 # app.py (Light Mode, Centered Tabs & Clean Layout)
 import streamlit as st
+import pandas as pd
 from supabase import create_client, Client
 import stripe
 
