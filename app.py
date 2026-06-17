@@ -383,7 +383,7 @@ if selected_page != st.session_state.nav_selection:
 
 # Ensure your data is fetched before the routing begins
 df = get_forensic_metrics(supabase, profile) 
-elif selected_page == "🏠 Overview":
+    elif selected_page == "🏠 Overview":
     if df.empty:
         st.markdown("""
         <div class="bento-card" style="text-align: center; margin-top: 4vh;">
