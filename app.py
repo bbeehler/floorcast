@@ -383,8 +383,7 @@ if selected_page != st.session_state.nav_selection:
 
 # Ensure your data is fetched before the routing begins
 df = get_forensic_metrics(supabase, profile) 
-
-if selected_page == "🏠 Overview":
+elif selected_page == "🏠 Overview":
     if df.empty:
         st.markdown("""
         <div class="bento-card" style="text-align: center; margin-top: 4vh;">
@@ -393,10 +392,35 @@ if selected_page == "🏠 Overview":
         </div>
         """, unsafe_allow_html=True)
     else:
+        import datetime
+        import plotly.graph_objects as go
+        
+        # --- NEW: DATE RANGE SELECTOR ---
+        today = datetime.date.today()
+        last_30 = today - datetime.timedelta(days=30)
+        
+        d_col1, d_col2 = st.columns([1, 3])
+        with d_col1:
+            audit_window = st.date_input(
+                "📅 Audit Window", 
+                value=(last_30, today), 
+                key="overview_window"
+            )
+        st.write("\n")
+        
+        # Filter the dataframe based on selection
+        if isinstance(audit_window, tuple) and len(audit_window) == 2:
+            start_date, end_date = audit_window
+            mask = (df['entry_date'].dt.date >= start_date) & (df['entry_date'].dt.date <= end_date)
+            df_filtered = df.loc[mask].copy()
+        else:
+            df_filtered = df.copy()
+
         # --- 1. NORTH STAR METRICS (Top Row) ---
-        total_traffic = df['actual_traffic'].sum()
-        total_coin = df['actual_coin_in'].sum()
-        total_members = df['new_members'].sum()
+        # Updated to use df_filtered instead of raw df
+        total_traffic = df_filtered['actual_traffic'].sum()
+        total_coin = df_filtered['actual_coin_in'].sum()
+        total_members = df_filtered['new_members'].sum()
 
         st.markdown(f"""
         <div style="display: flex; gap: 1.5rem; margin-bottom: 2rem;">
@@ -419,12 +443,11 @@ if selected_page == "🏠 Overview":
         """, unsafe_allow_html=True)
 
         # --- 2. THE UNIFIED PULSE CHART (Center Stage) ---
-        st.markdown("<h3 style='color: #111827; margin-bottom: 1rem;'>📈 The Unified Pulse (14-Day Trajectory)</h3>", unsafe_allow_html=True)
+        st.markdown("<h3 style='color: #111827; margin-bottom: 1rem;'>📈 The Unified Pulse</h3>", unsafe_allow_html=True)
         
-        # Prepare chart data (last 14 days, sorted chronologically)
-        df_chart = df.head(14).sort_values('entry_date')
+        # Prepare chart data (Filtered dynamically, no longer locked to 14 days)
+        df_chart = df_filtered.sort_values('entry_date')
         
-        import plotly.graph_objects as go
         fig = go.Figure()
         # Actual Traffic (Solid Blue Line)
         fig.add_trace(go.Scatter(x=df_chart['entry_date'], y=df_chart['actual_traffic'], name="Actual Guests", line=dict(color='#2563EB', width=4)))
@@ -482,6 +505,7 @@ if selected_page == "🏠 Overview":
                 <p style="color: #10B981; margin-top: 0.5rem; font-size: 0.85rem; font-weight: 500;">Elite Precision Tracking</p>
             </div>
             """, unsafe_allow_html=True)
+
 elif selected_page == "⚙️ Global Admin": import admin; admin.render_admin_page(supabase)
 elif selected_page == "🎰 Casino": import casino; casino.render_casino_module(supabase, profile['tenant_id'], prop_name)
 elif selected_page == "📈 Marketing": import marketing; marketing.render_marketing_module(supabase, profile['tenant_id'], prop_name)
