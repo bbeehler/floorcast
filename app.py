@@ -360,7 +360,11 @@ if selected_page != st.session_state.nav_selection:
     st.rerun()
 
 # --- 8. PAGE ROUTING ---
-elif selected == "🏠 Overview":
+
+# Ensure your data is fetched before the routing begins so the Overview can read it
+df = get_forensic_metrics() 
+
+if selected_page == "🏠 Overview":  # <-- FIXED: changed 'elif' to 'if' and 'selected' to 'selected_page'
     if df.empty:
         st.markdown("""
         <div class="bento-card" style="text-align: center; margin-top: 4vh;">
@@ -400,6 +404,7 @@ elif selected == "🏠 Overview":
         # Prepare chart data (last 14 days, sorted chronologically)
         df_chart = df.head(14).sort_values('entry_date')
         
+        import plotly.graph_objects as go
         fig = go.Figure()
         # Actual Traffic (Solid Blue Line)
         fig.add_trace(go.Scatter(x=df_chart['entry_date'], y=df_chart['actual_traffic'], name="Actual Guests", line=dict(color='#2563EB', width=4)))
