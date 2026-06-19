@@ -9,7 +9,7 @@ def fetch_module_data(supabase, tenant_id, start_date, end_date):
     """Fetches all operational and marketing data across modules for the selected window."""
     data = {}
     
-    # 1. Casino / Ledger (Includes Marketing Ad data & AI Predictions)
+    # 1. Casino / Ledger
     res_casino = supabase.table("mt_ledger").select("*").eq("tenant_id", tenant_id).gte("entry_date", str(start_date)).lte("entry_date", str(end_date)).execute()
     data['casino'] = pd.DataFrame(res_casino.data) if res_casino.data else pd.DataFrame()
     if not data['casino'].empty: data['casino']['date'] = pd.to_datetime(data['casino']['entry_date'])
@@ -29,15 +29,15 @@ def fetch_module_data(supabase, tenant_id, start_date, end_date):
     data['sentiment'] = pd.DataFrame(res_sent.data) if res_sent.data else pd.DataFrame()
     if not data['sentiment'].empty: data['sentiment']['date'] = pd.to_datetime(data['sentiment']['timestamp']).dt.normalize()
 
-    # 5. Email Ops
-    res_email = supabase.table("mt_email_ledger").select("*").eq("tenant_id", tenant_id).gte("audit_date", str(start_date)).lte("audit_date", str(end_date)).execute()
+    # 5. Email Ops (FIXED: Using mt_email_snapshots and snapshot_month)
+    res_email = supabase.table("mt_email_snapshots").select("*").eq("tenant_id", tenant_id).gte("snapshot_month", str(start_date)).lte("snapshot_month", str(end_date)).execute()
     data['email'] = pd.DataFrame(res_email.data) if res_email.data else pd.DataFrame()
-    if not data['email'].empty: data['email']['date'] = pd.to_datetime(data['email']['audit_date'])
+    if not data['email'].empty: data['email']['date'] = pd.to_datetime(data['email']['snapshot_month'])
 
-    # 6. PR & Earned Media
-    res_pr = supabase.table("mt_pr_ledger").select("*").eq("tenant_id", tenant_id).gte("audit_date", str(start_date)).lte("audit_date", str(end_date)).execute()
+    # 6. PR & Earned Media (FIXED: Using mt_pr_scorecard and report_month)
+    res_pr = supabase.table("mt_pr_scorecard").select("*").eq("tenant_id", tenant_id).gte("report_month", str(start_date)).lte("report_month", str(end_date)).execute()
     data['pr'] = pd.DataFrame(res_pr.data) if res_pr.data else pd.DataFrame()
-    if not data['pr'].empty: data['pr']['date'] = pd.to_datetime(data['pr']['audit_date'])
+    if not data['pr'].empty: data['pr']['date'] = pd.to_datetime(data['pr']['report_month'])
 
     return data
 
@@ -81,13 +81,13 @@ def render_master_report_module(supabase, tenant_id, property_name):
         "Average Sentiment Score",
         "Digital Ad Clicks", "Social Reach", "AI Prediction Accuracy",
         "Email Volume Sent", "Email Open Rate", "Email CTR",
-        "PR Earned Impressions", "PR Media Value"
+        "PR Earned Impressions", "PR Earned Mentions"
     ]
     
     chartable_streams = [
         "Gaming Revenue", "Casino Traffic", "New Signups", "F&B Revenue", "F&B Covers", 
         "Hotel Revenue", "Rooms Sold", "Digital Ad Clicks", "Social Reach",
-        "Channel Attribution Flow" # <--- The Special Sankey Option
+        "Channel Attribution Flow"
     ]
 
     with c_metrics:
@@ -170,19 +170,18 @@ def render_master_report_module(supabase, tenant_id, property_name):
             avg_score = data['sentiment']['sentiment_score'].astype(float).mean()
             kpi_math["Average Sentiment Score"] = (avg_score, "", " / 1.0")
             
-        # Email Ops
+        # Email Ops (FIXED to match mt_email_snapshots columns)
         if not data['email'].empty:
-            sent = data['email'].get('emails_sent', pd.Series([0])).sum()
-            opens = data['email'].get('emails_opened', pd.Series([0])).sum()
-            clicks = data['email'].get('emails_clicked', pd.Series([0])).sum()
+            sent = data['email'].get('total_emails_delivered', pd.Series([0])).sum()
+            avg_open = data['email']['avg_unique_open_rate'].astype(float).mean() if 'avg_unique_open_rate' in data['email'].columns else 0
             kpi_math["Email Volume Sent"] = (sent, "", "")
-            kpi_math["Email Open Rate"] = ((opens / sent) * 100 if sent > 0 else 0, "", "%")
-            kpi_math["Email CTR"] = ((clicks / opens) * 100 if opens > 0 else 0, "", "%")
+            kpi_math["Email Open Rate"] = (avg_open, "", "%")
+            kpi_math["Email CTR"] = (0, "", "%") # Will pull from campaign tables later if needed
             
-        # PR
+        # PR (FIXED to match mt_pr_scorecard columns)
         if not data['pr'].empty:
             kpi_math["PR Earned Impressions"] = (data['pr'].get('earned_impressions', pd.Series([0])).sum(), "", "")
-            kpi_math["PR Media Value"] = (data['pr'].get('media_value', pd.Series([0])).sum(), "$", "")
+            kpi_math["PR Earned Mentions"] = (data['pr'].get('earned_mentions', pd.Series([0])).sum(), "", "")
 
         # --- RENDER KPI CARDS ---
         if selected_metrics:
@@ -263,8 +262,8 @@ def render_master_report_module(supabase, tenant_id, property_name):
                     plot_bgcolor='rgba(0,0,0,0)', 
                     paper_bgcolor='rgba(0,0,0,0)',
                     xaxis=dict(showgrid=False),
-                    yaxis=dict(showgrid=True, gridcolor='#F3F4F6'),
-                    yaxis2=dict(overlaying="y", side="right", showgrid=False),
+                    yaxis=dict(showgrid=True, gridcolor='#F3F4F6', title="Revenue ($)"),
+                    yaxis2=dict(overlaying="y", side="right", showgrid=False, title="Volume (Count)"),
                     legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
                 )
                 
@@ -283,14 +282,11 @@ def render_master_report_module(supabase, tenant_id, property_name):
                 actual_traffic = data['casino'].get('actual_traffic', pd.Series([0])).sum() if not data['casino'].empty else 0
                 actual_rev = data['casino'].get('actual_coin_in', pd.Series([0])).sum() if not data['casino'].empty else 0
                 
-                # Apply simulated weight conversions for the visual flow
-                # (Normally this pulls directly from your MTA engine)
                 digital_traffic = int(ad_clicks_total * 0.05)
                 social_traffic = int(social_imps_total * 0.0002)
                 pr_traffic = int(pr_imps_total * 0.0001)
                 organic_traffic = max(0, actual_traffic - (digital_traffic + social_traffic + pr_traffic))
 
-                # Node indices: 0:Organic, 1:Digital Ads, 2:Social, 3:PR/Earned, 4:Total Foot Traffic, 5:Gaming Revenue
                 fig_sankey = go.Figure(data=[go.Sankey(
                     node = dict(
                         pad = 15, thickness = 20,
@@ -299,7 +295,7 @@ def render_master_report_module(supabase, tenant_id, property_name):
                         color = ["#9CA3AF", "#2563EB", "#8B5CF6", "#10B981", "#111827", "#F59E0B"]
                     ),
                     link = dict(
-                        source = [0, 1, 2, 3, 4], # Organic, Digital, Social, PR -> Traffic -> Revenue
+                        source = [0, 1, 2, 3, 4], 
                         target = [4, 4, 4, 4, 5],
                         value = [organic_traffic, digital_traffic, social_traffic, pr_traffic, actual_rev]
                     )
