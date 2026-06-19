@@ -339,8 +339,58 @@ global_role = profile.get('user_role', 'Viewer')
 res_access = supabase.table("property_access_roles").select("access_level, tenants(id, property_name)").eq("user_id", profile['id']).execute()
 
 if not res_access.data:
-    st.warning("No properties detected. Redirecting to Self-Serve Onboarding...")
-    st.info("The self-serve provisioning funnel will render here.")
+    # THE SELF-SERVE ONBOARDING FUNNEL
+    st.markdown("<h2 style='text-align: center; margin-top: 8vh; color: #111827;'>Welcome to FloorCast OS</h2>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #6B7280; margin-bottom: 3rem;'>Let's provision your first secure property workspace.</p>", unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        with st.form("onboarding_form", border=False):
+            st.markdown('<div class="bento-card">', unsafe_allow_html=True)
+            new_prop_name = st.text_input("Property Name", placeholder="e.g., Hard Rock Hotel & Casino Ottawa")
+            new_prop_region = st.selectbox("Region", ["North America", "EMEA", "APAC", "LATAM"])
+            
+            st.write("\n")
+            if st.form_submit_button("🚀 Provision Workspace & Enter", use_container_width=True):
+                if new_prop_name:
+                    try:
+                        # 1. Create the Isolated Tenant
+                        t_res = supabase.table("tenants").insert({"property_name": new_prop_name, "region": new_prop_region}).execute()
+                        new_tenant_id = t_res.data[0]['id']
+                        
+                        # 2. Grant the User 'Owner' Access
+                        supabase.table("property_access_roles").insert({
+                            "user_id": profile['id'],
+                            "tenant_id": new_tenant_id,
+                            "access_level": "Owner"
+                        }).execute()
+                        
+                        # 3. Establish Default AI Baseline DNA
+                        default_dna = {
+                            "tenant_id": new_tenant_id,
+                            "Avg_Coin_In": 112.50, "Hold_Pct": 10.0, "Clicks": 0.05,
+                            "Social_Imp": 0.0002, "Ad_Decay": 85, "Broadcast_Weight": 150,
+                            "Rain_mm": -12, "Snow_cm": -45
+                        }
+                        supabase.table("mt_coefficients").insert(default_dna).execute()
+                        
+                        # 4. Activate Base Subscriptions so they don't hit a blank screen
+                        default_subs = [
+                            {"tenant_id": new_tenant_id, "module_name": "casino_ops", "status": "active"},
+                            {"tenant_id": new_tenant_id, "module_name": "marketing_pro", "status": "active"}
+                        ]
+                        supabase.table("tenant_subscriptions").insert(default_subs).execute()
+                        
+                        st.success("Workspace provisioned! Initializing...")
+                        import time
+                        time.sleep(1.5)
+                        st.rerun()
+                        
+                    except Exception as e:
+                        st.error(f"Provisioning Failed: {e}")
+                else:
+                    st.error("Please provide a property name to continue.")
+            st.markdown('</div>', unsafe_allow_html=True)
     st.stop() # Halts the rest of the app from loading until they provision a property
 
 # Map their allowed properties
@@ -352,7 +402,7 @@ for row in res_access.data:
             "tenant_id": t_data['id'],
             "role": row['access_level']
         }
-
+        
 # --- 7B. TOP NAVIGATION BAR & SWITCHER ---
 if 'nav_selection' not in st.session_state: st.session_state.nav_selection = "🏠 Overview"
 if 'pending_ai_query' not in st.session_state: st.session_state.pending_ai_query = None
