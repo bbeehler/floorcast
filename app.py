@@ -245,16 +245,28 @@ def signup_modal(tier_name):
     with st.form("saas_signup_form", border=False):
         email = st.text_input("Corporate Email").strip().lower()
         password = st.text_input("Create Password", type="password")
-        if st.form_submit_button("💳 Confirm Subscription & Register", use_container_width=True):
+        
+        # Change the button CTA if they are just running a Sandbox test
+        btn_text = "🚀 Start Free Sandbox Test" if tier_name == "Developer Sandbox" else "💳 Confirm Subscription & Register"
+        
+        if st.form_submit_button(btn_text, use_container_width=True):
             try:
+                # 1. Hit Supabase Auth
                 auth_res = supabase.auth.sign_up({"email": email, "password": password})
+                
                 if auth_res.user:
-                    with st.spinner("Processing secure payment..."):
-                        time.sleep(2)
+                    # Fake Stripe processing delay ONLY for paid tiers
+                    if tier_name != "Developer Sandbox":
+                        with st.spinner("Processing secure payment..."):
+                            time.sleep(2)
+                            
                     st.session_state.authenticated = True
                     time.sleep(1) 
+                    
+                    # 2. Fetch the profile that Supabase triggers (hopefully) created
                     profile_res = supabase.table("user_profiles").select("*").eq("email", email).execute()
-                    if profile_res.data: st.session_state.user_profile = profile_res.data[0]
+                    if profile_res.data: 
+                        st.session_state.user_profile = profile_res.data[0]
                     st.rerun()
             except Exception as e:
                 st.error(f"Registration Failed: {e}")
