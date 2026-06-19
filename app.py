@@ -1,4 +1,4 @@
-# app.py (Light Mode, Centered Tabs & Clean Layout)
+# app.py (Light Mode, Centered Tabs & Multi-Tenant Architecture)
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
@@ -163,11 +163,12 @@ if 'active_modules' not in st.session_state: st.session_state.active_modules = [
 # --- DATA FETCHING & AI FORECASTING ENGINE ---
 def get_forensic_metrics(db_client, user_prof, target_start, target_end):
     """Fetches historical data and projects AI predictions across any requested timeline."""
-    if not user_prof or 'tenant_id' not in user_prof:
-        return pd.DataFrame()
+    if not user_prof: return pd.DataFrame()
     
     try:
-        tenant_id = user_prof['tenant_id']
+        # Pulling the dynamically active tenant, not the hardcoded profile one
+        tenant_id = st.session_state.get('active_tenant_id')
+        if not tenant_id: return pd.DataFrame()
         
         # 1. Fetch Historical Actuals (Always grab the latest 90 days to build the baseline model)
         res = db_client.table("mt_ledger").select("*").eq("tenant_id", tenant_id).order("entry_date", desc=True).limit(90).execute()
@@ -231,19 +232,14 @@ def login_modal():
             try:
                 auth_res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 if auth_res.user:
-                    profile_res = supabase.table("user_profiles").select("*, tenants(property_name, region)").eq("email", email).execute()
+                    # Fetch profile ONLY. Multi-tenant access is handled after login.
+                    profile_res = supabase.table("user_profiles").select("*").eq("email", email).execute()
                     if profile_res.data:
-                        user_data = profile_res.data[0]
-                        tenant_id = user_data['tenant_id']
-                        sub_res = supabase.table("tenant_subscriptions").select("module_name").eq("tenant_id", tenant_id).eq("status", "active").execute()
-                        modules = [sub['module_name'] for sub in sub_res.data] if sub_res.data else []
-                        
                         st.session_state.authenticated = True
-                        st.session_state.user_profile = user_data
-                        st.session_state.active_modules = modules
+                        st.session_state.user_profile = profile_res.data[0]
                         st.rerun()
                     else:
-                        st.error("Account created, but no property assigned. Contact Support.")
+                        st.error("Profile not found in directory.")
             except Exception as e:
                 st.error("Invalid credentials.")
 
@@ -337,26 +333,59 @@ if not st.session_state.authenticated:
 # --- 7. LOGGED IN: THE ACTIVE WORKSPACE ---
 # ==========================================
 profile = st.session_state.user_profile
-prop_name = profile['tenants']['property_name']
-role = profile['user_role']
+global_role = profile.get('user_role', 'Viewer')
 
-# Ensure we have a way to track the active tab and pending AI questions
+# --- 7A. FETCH MULTI-TENANT ACCESS ---
+res_access = supabase.table("property_access_roles").select("access_level, tenants(id, property_name)").eq("user_id", profile['id']).execute()
+
+if not res_access.data:
+    st.warning("No properties detected. Redirecting to Self-Serve Onboarding...")
+    st.info("The self-serve provisioning funnel will render here.")
+    st.stop() # Halts the rest of the app from loading until they provision a property
+
+# Map their allowed properties
+accessible_properties = {}
+for row in res_access.data:
+    t_data = row['tenants']
+    if isinstance(t_data, dict):
+        accessible_properties[t_data['property_name']] = {
+            "tenant_id": t_data['id'],
+            "role": row['access_level']
+        }
+
+# --- 7B. TOP NAVIGATION BAR & SWITCHER ---
 if 'nav_selection' not in st.session_state: st.session_state.nav_selection = "🏠 Overview"
 if 'pending_ai_query' not in st.session_state: st.session_state.pending_ai_query = None
 
-nav_c1, nav_c2 = st.columns([5, 1])
-with nav_c1: st.markdown("<h4 style='margin-top: 10px; color:#111827;'>🎰 FloorCast OS</h4>", unsafe_allow_html=True)
+nav_c1, nav_c2, nav_c3 = st.columns([5, 2, 1])
+with nav_c1: 
+    st.markdown("<h4 style='margin-top: 10px; color:#111827;'>🎰 FloorCast OS</h4>", unsafe_allow_html=True)
 with nav_c2:
+    # PROPERTY SWITCHER
+    selected_prop_name = st.selectbox(
+        "Active Context", 
+        list(accessible_properties.keys()), 
+        label_visibility="collapsed"
+    )
+with nav_c3:
     st.markdown('<div class="ghost-btn">', unsafe_allow_html=True)
-    if st.button(f"Sign Out ({profile['email']})", use_container_width=True):
+    if st.button("Sign Out", use_container_width=True):
         st.session_state.clear()
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-st.markdown(f'<div class="hero-greeting">Good afternoon, {prop_name}.</div>', unsafe_allow_html=True)
+# Lock in the active variables for the rest of the app to use
+active_tenant_id = accessible_properties[selected_prop_name]["tenant_id"]
+active_role = accessible_properties[selected_prop_name]["role"]
+st.session_state.active_tenant_id = active_tenant_id
+
+# Fetch active subscriptions dynamically for the selected property
+sub_res = supabase.table("tenant_subscriptions").select("module_name").eq("tenant_id", active_tenant_id).eq("status", "active").execute()
+st.session_state.active_modules = [s['module_name'] for s in sub_res.data] if sub_res.data else []
+
+st.markdown(f'<div class="hero-greeting">Good afternoon, {selected_prop_name}.</div>', unsafe_allow_html=True)
 
 # --- THE FIX: AI PROMPT VISIBILITY & ROUTING ---
-# Only render this massive central prompt if they pay for the AI module
 if "ai_advisor" in st.session_state.active_modules:
     _, search_col, _ = st.columns([1, 3, 1])
     with search_col:
@@ -366,13 +395,11 @@ if "ai_advisor" in st.session_state.active_modules:
         with col_btn:
             if st.button("Analyze ✨", use_container_width=True):
                 if quick_query:
-                    # Store their question and force the app to the AI tab
                     st.session_state.pending_ai_query = quick_query
                     st.session_state.nav_selection = "🧠 AI Advisor"
                     st.rerun()
     st.write("\n")
 else:
-    # Add some breathing room so the layout doesn't collapse for Core users
     st.write("\n\n\n")
 
 # Horizontal Semantic Navigation (Clean Centered Tabs)
@@ -384,13 +411,13 @@ if "pr_media" in st.session_state.active_modules: nav_options.append("📢 PR")
 if "hotel_rev" in st.session_state.active_modules: nav_options.append("🛏️ Hotel")
 if "fnb" in st.session_state.active_modules: nav_options.append("🍽️ F&B")
 if "email_ops" in st.session_state.active_modules: nav_options.append("📨 Email")
-if "master_report" in st.session_state.active_modules or role in ["Manager", "Admin", "Super Admin"]: 
+if "master_report" in st.session_state.active_modules or active_role in ["Owner", "Admin"] or global_role == "Super Admin": 
     nav_options.append("📊 Master Report")
-if role in ["Manager", "Admin", "Super Admin"]:
+if active_role in ["Owner", "Admin"] or global_role == "Super Admin":
     nav_options.append("⚙️ Property Settings")
-if role == "Super Admin": nav_options.append("⚙️ Global Admin")
+if global_role == "Super Admin": 
+    nav_options.append("⚙️ Global Admin")
 
-# Keep the radio button synced with our routing logic
 try:
     nav_idx = nav_options.index(st.session_state.nav_selection)
 except ValueError:
@@ -398,7 +425,6 @@ except ValueError:
 
 selected_page = st.radio("Workspace Navigation", nav_options, index=nav_idx, horizontal=True, label_visibility="collapsed")
 
-# If the user clicks a tab directly, update the state and reload
 if selected_page != st.session_state.nav_selection:
     st.session_state.nav_selection = selected_page
     st.rerun()
@@ -423,23 +449,18 @@ if selected_page == "🏠 Overview":
         )
     st.write("\n")
     
-    # Safely unpack dates
     if isinstance(audit_window, tuple) and len(audit_window) == 2:
         start_date, end_date = audit_window
     else:
         start_date, end_date = default_start, default_future
 
-    # Calculate Previous Period (PoP) for True Deltas
     delta_days = (end_date - start_date).days + 1
     pp_end = start_date - datetime.timedelta(days=1)
     pp_start = pp_end - datetime.timedelta(days=delta_days - 1)
 
-    # --- 2. DATA AGGREGATION (GRAND TOTALS ACROSS ALL MODULES) ---
-    tenant_id = profile['tenant_id']
-    
     # Helper function to fetch and sum specific columns safely
     def fetch_sum(table, date_col, sum_col, s_date, e_date):
-        res = supabase.table(table).select(sum_col).eq("tenant_id", tenant_id).gte(date_col, str(s_date)).lte(date_col, str(e_date)).execute()
+        res = supabase.table(table).select(sum_col).eq("tenant_id", active_tenant_id).gte(date_col, str(s_date)).lte(date_col, str(e_date)).execute()
         return sum(x[sum_col] for x in res.data if x.get(sum_col)) if res.data else 0
 
     # CURRENT PERIOD MATH
@@ -456,7 +477,7 @@ if selected_page == "🏠 Overview":
     cp_yield = cp_total_rev / cp_total_traf if cp_total_traf > 0 else 0
     cp_signups = fetch_sum("mt_ledger", "entry_date", "new_members", start_date, end_date)
 
-    # PREVIOUS PERIOD MATH (For the +/- Delta)
+    # PREVIOUS PERIOD MATH
     pp_gaming_rev = fetch_sum("mt_ledger", "entry_date", "actual_coin_in", pp_start, pp_end)
     pp_fnb_rev = fetch_sum("mt_fnb_ledger", "audit_date", "total_revenue", pp_start, pp_end)
     pp_hotel_rev = fetch_sum("mt_hotel_ledger", "audit_date", "room_revenue", pp_start, pp_end)
@@ -470,7 +491,6 @@ if selected_page == "🏠 Overview":
     pp_yield = pp_total_rev / pp_total_traf if pp_total_traf > 0 else 0
     pp_signups = fetch_sum("mt_ledger", "entry_date", "new_members", pp_start, pp_end)
 
-    # Calculate True Percentages
     def calc_pct(cp, pp):
         if pp == 0 and cp > 0: return 100.0
         if pp == 0 and cp == 0: return 0.0
@@ -482,11 +502,10 @@ if selected_page == "🏠 Overview":
     signups_pct = calc_pct(cp_signups, pp_signups)
 
     def format_delta(pct):
-        color = "#10B981" if pct >= 0 else "#EF4444" # Green if up, Red if down
+        color = "#10B981" if pct >= 0 else "#EF4444" 
         sign = "+" if pct >= 0 else ""
         return f'<p style="color: {color}; margin: 0; font-weight: 600; font-size: 0.9rem;">{sign}{pct:.1f}% vs Prior Period</p>'
 
-    # --- 3. NORTH STAR METRICS (Top Row - 4 Cards) ---
     st.markdown(f"""
     <div style="display: flex; gap: 1.5rem; margin-bottom: 2rem;">
         <div class="bento-card" style="flex: 1; text-align: center;">
@@ -512,24 +531,19 @@ if selected_page == "🏠 Overview":
     </div>
     """, unsafe_allow_html=True)
 
-    # --- 4. THE UNIFIED PULSE CHART (Center Stage) ---
     st.markdown("<h3 style='color: #111827; margin-bottom: 1rem;'>📈 The Unified Pulse</h3>", unsafe_allow_html=True)
     
-    # We still run the AI engine specifically to chart the Gaming/Ledger forecast timeline
     df_filtered = get_forensic_metrics(supabase, profile, start_date, end_date)
     
     if not df_filtered.empty:
         df_chart = df_filtered.sort_values('entry_date')
         
         fig = go.Figure()
-        # Actual Traffic (Solid Blue Line)
         fig.add_trace(go.Scatter(x=df_chart['entry_date'], y=df_chart['actual_traffic'], name="Casino Guests", line=dict(color='#2563EB', width=4)))
         
-        # AI Forecast (Dotted Gold Line)
         if 'predicted_traffic' in df_chart.columns:
             fig.add_trace(go.Scatter(x=df_chart['entry_date'], y=df_chart['predicted_traffic'], name="AI Forecast", line=dict(color='#F59E0B', width=3, dash='dot')))
         
-        # Make the chart transparent to float on the bento card
         fig.update_layout(
             height=320, 
             margin=dict(l=0, r=0, t=10, b=0), 
@@ -553,7 +567,6 @@ if selected_page == "🏠 Overview":
         
     st.write("\n")
 
-    # --- 5. MODULE TEASER WIDGETS (Bottom Grid) ---
     st.markdown("<h3 style='color: #111827; margin-bottom: 1rem; margin-top: 2rem;'>🧩 Intelligence Teasers</h3>", unsafe_allow_html=True)
     
     t1, t2, t3 = st.columns(3)
@@ -590,32 +603,32 @@ elif selected_page == "⚙️ Global Admin":
     admin.render_admin_page(supabase)
 elif selected_page == "🎰 Casino": 
     import casino
-    casino.render_casino_module(supabase, profile['tenant_id'], prop_name)
+    casino.render_casino_module(supabase, active_tenant_id, selected_prop_name)
 elif selected_page == "📈 Marketing": 
     import marketing
-    marketing.render_marketing_module(supabase, profile['tenant_id'], prop_name)
+    marketing.render_marketing_module(supabase, active_tenant_id, selected_prop_name)
 elif selected_page == "📢 PR": 
     import pr
-    pr.render_pr_module(supabase, profile['tenant_id'], prop_name)
+    pr.render_pr_module(supabase, active_tenant_id, selected_prop_name)
 elif selected_page == "📨 Email": 
     import email_ops
-    email_ops.render_email_module(supabase, profile['tenant_id'], prop_name)
+    email_ops.render_email_module(supabase, active_tenant_id, selected_prop_name)
 elif selected_page == "🛏️ Hotel": 
     import hotel
-    hotel.render_hotel_module(supabase, profile['tenant_id'], prop_name)
+    hotel.render_hotel_module(supabase, active_tenant_id, selected_prop_name)
 elif selected_page == "🍽️ F&B": 
     import fnb
-    fnb.render_fnb_module(supabase, profile['tenant_id'], prop_name)
+    fnb.render_fnb_module(supabase, active_tenant_id, selected_prop_name)
 elif selected_page == "🧠 AI Advisor": 
     import ai_advisor
     query = st.session_state.get('pending_ai_query', None)
     st.session_state.pending_ai_query = None 
-    ai_advisor.render_advisor_module(supabase, profile['tenant_id'], prop_name, initial_query=query)
+    ai_advisor.render_advisor_module(supabase, active_tenant_id, selected_prop_name, initial_query=query)
 elif selected_page == "📊 Master Report": 
     import master_report
-    master_report.render_master_report_module(supabase, profile['tenant_id'], prop_name)
+    master_report.render_master_report_module(supabase, active_tenant_id, selected_prop_name)
 elif selected_page == "⚙️ Property Settings": 
     import property_settings
-    property_settings.render_settings_module(supabase, profile['tenant_id'], prop_name)
+    property_settings.render_settings_module(supabase, active_tenant_id, selected_prop_name)
 else: 
     st.info("Module under construction.")
