@@ -378,7 +378,7 @@ if not st.session_state.authenticated:
 # ==========================================
 profile = st.session_state.user_profile
 
-# --- THE FIX: Safety net if profile data drops from memory ---
+# --- SAFETY NET 1: Profile dropped from memory ---
 if not profile:
     st.session_state.authenticated = False
     st.rerun()
@@ -386,22 +386,53 @@ if not profile:
 global_role = profile.get('user_role', 'Viewer')
 
 # --- 7A. MULTI-TENANT ACCESS CHECK ---
-res_access = supabase.table("property_access_roles").select("access_level, tenants(id, property_name)").eq("user_id", profile['id']).execute()
+# Define this at the root level so it NEVER throws a NameError
+accessible_properties = {} 
 
+try:
+    res_access = supabase.table("property_access_roles").select("access_level, tenants(id, property_name)").eq("user_id", profile['id']).execute()
+    if res_access.data:
+        for row in res_access.data:
+            t_data = row.get('tenants')
+            if isinstance(t_data, dict):
+                accessible_properties[t_data['property_name']] = {
+                    "tenant_id": t_data['id'],
+                    "role": row.get('access_level', 'Owner')
+                }
+except Exception as e:
+    st.error(f"Database sync error while fetching properties: {e}")
 
 # --- 7B. THE PROVISIONING ENGINE (Used for First Run AND Adding Subsequent Properties) ---
 def render_provisioning_funnel(is_first_run=False):
     st.markdown(f"<h2 style='text-align: center; margin-top: 8vh;'>{'Welcome to FloorCast OS' if is_first_run else 'Add New Property'}</h2>", unsafe_allow_html=True)
-    st.markdown(f"<p style='text-align: center; color: #6B7280; margin-bottom: 3rem;'>{'Provision your first secure workspace.' if is_first_run else 'Create a new isolated database tenant for your portfolio.'}</p>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align: center; color: #6B7280; margin-bottom: 3rem;'>{'Provision your first secure workspace and select your modules.' if is_first_run else 'Create a new isolated database tenant for your portfolio.'}</p>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         with st.form("onboarding_form", border=False):
             st.markdown('<div class="bento-card">', unsafe_allow_html=True)
+            
+            st.markdown("<h4 style='color: #111827; margin-top: 0;'>1. Property Details</h4>", unsafe_allow_html=True)
             new_prop_name = st.text_input("Property Name", placeholder="e.g., Hard Rock Ottawa")
             new_prop_region = st.selectbox("Region", ["North America", "EMEA", "APAC", "LATAM"])
             
-            if st.form_submit_button("🚀 Provision Workspace", use_container_width=True):
+            st.markdown("<hr style='margin: 1.5rem 0;'>", unsafe_allow_html=True)
+            
+            st.markdown("<h4 style='color: #111827;'>2. Intelligence Modules</h4>", unsafe_allow_html=True)
+            st.markdown("<p style='color: #6B7280; font-size: 0.9rem; margin-bottom: 1rem;'>Select the specific engines you want to activate for this property.</p>", unsafe_allow_html=True)
+            
+            st.checkbox("🎰 Casino Analytics (Core)", value=True, disabled=True)
+            st.checkbox("📈 Marketing & Attribution (Core)", value=True, disabled=True)
+            
+            mod_ai = st.checkbox("🧠 FloorCast AI Advisor", value=False)
+            mod_pr = st.checkbox("📢 PR Scorecard", value=False)
+            mod_hotel = st.checkbox("🛏️ Hotel & Booking", value=False)
+            mod_fnb = st.checkbox("🍽️ Food & Beverage", value=False)
+            mod_email = st.checkbox("📨 Email Analytics", value=False)
+            mod_report = st.checkbox("📊 Master Report Builder", value=False)
+            
+            st.write("\n")
+            if st.form_submit_button("🚀 Provision Workspace & Boot OS", use_container_width=True):
                 if new_prop_name:
                     try:
                         # 1. Create Isolated Tenant
@@ -414,14 +445,28 @@ def render_provisioning_funnel(is_first_run=False):
                         # 3. Default AI DNA
                         supabase.table("mt_coefficients").insert({"tenant_id": new_tenant_id, "Avg_Coin_In": 112.50, "Hold_Pct": 10.0, "Clicks": 0.05, "Social_Imp": 0.0002, "Ad_Decay": 85, "Broadcast_Weight": 150, "Rain_mm": -12, "Snow_cm": -45}).execute()
                         
-                        # 4. Activate Base Subscriptions
-                        supabase.table("tenant_subscriptions").insert([{"tenant_id": new_tenant_id, "module_name": "casino_ops", "status": "active"}, {"tenant_id": new_tenant_id, "module_name": "marketing_pro", "status": "active"}]).execute()
+                        # 4. Activate Core & Selected Subscriptions
+                        subs_to_insert = [
+                            {"tenant_id": new_tenant_id, "module_name": "casino_ops", "status": "active"},
+                            {"tenant_id": new_tenant_id, "module_name": "marketing_pro", "status": "active"}
+                        ]
+                        if mod_ai: subs_to_insert.append({"tenant_id": new_tenant_id, "module_name": "ai_advisor", "status": "active"})
+                        if mod_pr: subs_to_insert.append({"tenant_id": new_tenant_id, "module_name": "pr_media", "status": "active"})
+                        if mod_hotel: subs_to_insert.append({"tenant_id": new_tenant_id, "module_name": "hotel_rev", "status": "active"})
+                        if mod_fnb: subs_to_insert.append({"tenant_id": new_tenant_id, "module_name": "fnb", "status": "active"})
+                        if mod_email: subs_to_insert.append({"tenant_id": new_tenant_id, "module_name": "email_ops", "status": "active"})
+                        if mod_report: subs_to_insert.append({"tenant_id": new_tenant_id, "module_name": "master_report", "status": "active"})
                         
-                        st.success("Workspace provisioned! Initializing...")
+                        supabase.table("tenant_subscriptions").insert(subs_to_insert).execute()
+                        
+                        st.success("Workspace provisioned! Initializing FloorCast OS...")
+                        import time
                         time.sleep(1.5)
                         st.rerun()
                     except Exception as e:
                         st.error(f"Provisioning Failed: {e}")
+                else:
+                    st.error("Property name is required to initialize.")
             st.markdown('</div>', unsafe_allow_html=True)
 
 # If they have 0 properties, force the First Run provisioning funnel
@@ -452,13 +497,16 @@ if selected_context == "➕ Provision New Property":
     render_provisioning_funnel(is_first_run=False)
     st.stop()
 
-# Set active context variables
+# Set active context variables safely
 active_tenant_id = accessible_properties[selected_context]["tenant_id"]
 active_role = accessible_properties[selected_context]["role"]
 st.session_state.active_tenant_id = active_tenant_id
 
-sub_res = supabase.table("tenant_subscriptions").select("module_name").eq("tenant_id", active_tenant_id).eq("status", "active").execute()
-st.session_state.active_modules = [s['module_name'] for s in sub_res.data] if sub_res.data else []
+try:
+    sub_res = supabase.table("tenant_subscriptions").select("module_name").eq("tenant_id", active_tenant_id).eq("status", "active").execute()
+    st.session_state.active_modules = [s['module_name'] for s in sub_res.data] if sub_res.data else []
+except Exception:
+    st.session_state.active_modules = []
 
 st.markdown(f'<div class="hero-greeting">Good afternoon, {selected_context}.</div>', unsafe_allow_html=True)
 
