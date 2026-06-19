@@ -388,11 +388,6 @@ global_role = profile.get('user_role', 'Viewer')
 # --- 7A. MULTI-TENANT ACCESS CHECK ---
 res_access = supabase.table("property_access_roles").select("access_level, tenants(id, property_name)").eq("user_id", profile['id']).execute()
 
-if res_access.data:
-    for row in res_access.data:
-        t_data = row['tenants']
-        if isinstance(t_data, dict):
-            accessible_properties[t_data['property_name']] = {"tenant_id": t_data['id'], "role": row['access_level']}
 
 # --- 7B. THE PROVISIONING ENGINE (Used for First Run AND Adding Subsequent Properties) ---
 def render_provisioning_funnel(is_first_run=False):
