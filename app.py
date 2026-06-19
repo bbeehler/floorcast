@@ -246,28 +246,32 @@ def signup_modal(tier_name):
         email = st.text_input("Corporate Email").strip().lower()
         password = st.text_input("Create Password", type="password")
         
-        # Change the button CTA if they are just running a Sandbox test
         btn_text = "🚀 Start Free Sandbox Test" if tier_name == "Developer Sandbox" else "💳 Confirm Subscription & Register"
         
         if st.form_submit_button(btn_text, use_container_width=True):
             try:
-                # 1. Hit Supabase Auth
                 auth_res = supabase.auth.sign_up({"email": email, "password": password})
-                
                 if auth_res.user:
-                    # Fake Stripe processing delay ONLY for paid tiers
                     if tier_name != "Developer Sandbox":
                         with st.spinner("Processing secure payment..."):
                             time.sleep(2)
-                            
-                    st.session_state.authenticated = True
-                    time.sleep(1) 
                     
-                    # 2. Fetch the profile that Supabase triggers (hopefully) created
-                    profile_res = supabase.table("user_profiles").select("*").eq("email", email).execute()
-                    if profile_res.data: 
-                        st.session_state.user_profile = profile_res.data[0]
-                    st.rerun()
+                    # --- THE FIX: Wait for the Supabase Profile Trigger ---
+                    with st.spinner("Provisioning secure identity..."):
+                        profile_found = False
+                        for _ in range(4): # Check up to 4 times (6 seconds max)
+                            time.sleep(1.5)
+                            profile_res = supabase.table("user_profiles").select("*").eq("email", email).execute()
+                            if profile_res.data:
+                                st.session_state.user_profile = profile_res.data[0]
+                                st.session_state.authenticated = True
+                                profile_found = True
+                                st.rerun()
+                                break
+                        
+                        if not profile_found:
+                            st.error("Database sync delayed. Please close this modal and click 'Client Login'.")
+                            
             except Exception as e:
                 st.error(f"Registration Failed: {e}")
 
