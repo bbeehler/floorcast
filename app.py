@@ -384,6 +384,8 @@ if "pr_media" in st.session_state.active_modules: nav_options.append("📢 PR")
 if "hotel_rev" in st.session_state.active_modules: nav_options.append("🛏️ Hotel")
 if "fnb" in st.session_state.active_modules: nav_options.append("🍽️ F&B")
 if "email_ops" in st.session_state.active_modules: nav_options.append("📨 Email")
+if "master_report" in st.session_state.active_modules or role in ["Manager", "Admin", "Super Admin"]: 
+    nav_options.append("📊 Master Report")
 if role == "Super Admin": nav_options.append("⚙️ Global Admin")
 
 # Keep the radio button synced with our routing logic
@@ -607,5 +609,8 @@ elif selected_page == "🧠 AI Advisor":
     query = st.session_state.get('pending_ai_query', None)
     st.session_state.pending_ai_query = None 
     ai_advisor.render_advisor_module(supabase, profile['tenant_id'], prop_name, initial_query=query)
+elif selected_page == "📊 Master Report": 
+    import master_report
+    master_report.render_master_report_module(supabase, profile['tenant_id'], prop_name)
 else: 
     st.info("Module under construction.")
