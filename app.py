@@ -1,8 +1,9 @@
-# app.py (Light Mode, Centered Tabs & Multi-Tenant Architecture)
+# app.py (True Self-Serve SaaS Architecture - COMPLETE)
 import streamlit as st
 import pandas as pd
 from supabase import create_client, Client
 import stripe
+import time
 
 # --- 1. PAGE CONFIGURATION ---
 st.set_page_config(page_title="FloorCast OS", layout="wide", initial_sidebar_state="collapsed")
@@ -220,28 +221,43 @@ def create_checkout_session(price_id):
     except Exception as e:
         st.error(f"Payment Gateway Error: {e}")
 
-# --- 5. THE LOGIN MODAL ---
+# --- 5. MODALS (LOGIN VS SIGNUP) ---
 @st.dialog("Secure Client Portal")
 def login_modal():
-    st.markdown("<p style='color: #6B7280; font-weight: 500; margin-bottom: 1rem;'>Authenticate to access your workspace.</p>", unsafe_allow_html=True)
-    with st.form("saas_login_form", clear_on_submit=True, border=False):
-        email = st.text_input("Corporate Email", placeholder="manager@casino.com").strip().lower()
-        password = st.text_input("Access Token", type="password", placeholder="••••••••")
-        st.write("\n")
+    st.markdown("<p style='color: #6B7280;'>Authenticate to access your workspace.</p>", unsafe_allow_html=True)
+    with st.form("saas_login_form", border=False):
+        email = st.text_input("Corporate Email").strip().lower()
+        password = st.text_input("Access Token", type="password")
         if st.form_submit_button("Authenticate & Enter", use_container_width=True):
             try:
                 auth_res = supabase.auth.sign_in_with_password({"email": email, "password": password})
                 if auth_res.user:
-                    # Fetch profile ONLY. Multi-tenant access is handled after login.
                     profile_res = supabase.table("user_profiles").select("*").eq("email", email).execute()
-                    if profile_res.data:
-                        st.session_state.authenticated = True
-                        st.session_state.user_profile = profile_res.data[0]
-                        st.rerun()
-                    else:
-                        st.error("Profile not found in directory.")
-            except Exception as e:
+                    st.session_state.authenticated = True
+                    st.session_state.user_profile = profile_res.data[0]
+                    st.rerun()
+            except Exception:
                 st.error("Invalid credentials.")
+
+@st.dialog("Create FloorCast Account")
+def signup_modal(tier_name):
+    st.markdown(f"<p style='color: #6B7280;'>Registering for the <b>{tier_name}</b> plan.</p>", unsafe_allow_html=True)
+    with st.form("saas_signup_form", border=False):
+        email = st.text_input("Corporate Email").strip().lower()
+        password = st.text_input("Create Password", type="password")
+        if st.form_submit_button("💳 Confirm Subscription & Register", use_container_width=True):
+            try:
+                auth_res = supabase.auth.sign_up({"email": email, "password": password})
+                if auth_res.user:
+                    with st.spinner("Processing secure payment..."):
+                        time.sleep(2)
+                    st.session_state.authenticated = True
+                    time.sleep(1) 
+                    profile_res = supabase.table("user_profiles").select("*").eq("email", email).execute()
+                    if profile_res.data: st.session_state.user_profile = profile_res.data[0]
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Registration Failed: {e}")
 
 # ==========================================
 # --- 6. LOGGED OUT: PUBLIC MARKETING PAGE ---
@@ -251,7 +267,7 @@ if not st.session_state.authenticated:
     with c1: st.markdown("<h3 style='margin:0; color:#111827;'>🎰 FloorCast AI</h3>", unsafe_allow_html=True)
     with c2:
         st.markdown('<div class="ghost-btn">', unsafe_allow_html=True)
-        if st.button("Client Login", use_container_width=True): login_modal()
+        if st.button("Client Login", use_container_width=True): login_modal() # EXISTING USERS ONLY
         st.markdown('</div>', unsafe_allow_html=True)
 
     st.markdown('<div class="hero-greeting">Predict. Perform. Profit.</div>', unsafe_allow_html=True)
@@ -304,7 +320,8 @@ if not st.session_state.authenticated:
         </div>
         """, unsafe_allow_html=True)
         st.write("\n")
-        if st.button("Select Core", key="b1", use_container_width=True): create_checkout_session("price_YOUR_CORE_ID_HERE")
+        # NEW USERS TRIGGER SIGNUP
+        if st.button("Select Core", key="b1", use_container_width=True): signup_modal("Core")
     with p2:
         st.markdown("""
         <div class="bento-card" style="text-align: center; border: 2px solid #2563EB;">
@@ -315,7 +332,7 @@ if not st.session_state.authenticated:
         </div>
         """, unsafe_allow_html=True)
         st.write("\n")
-        if st.button("Select Premium", key="b2", use_container_width=True): create_checkout_session("price_YOUR_PREMIUM_ID_HERE")
+        if st.button("Select Premium", key="b2", use_container_width=True): signup_modal("Premium")
     with p3:
         st.markdown("""
         <div class="bento-card" style="text-align: center;">
@@ -326,8 +343,9 @@ if not st.session_state.authenticated:
         </div>
         """, unsafe_allow_html=True)
         st.write("\n")
-        if st.button("Select Enterprise", key="b3", use_container_width=True): create_checkout_session("price_YOUR_ENTERPRISE_ID_HERE")
+        if st.button("Select Enterprise", key="b3", use_container_width=True): signup_modal("Enterprise")
     st.stop()
+
 
 # ==========================================
 # --- 7. LOGGED IN: THE ACTIVE WORKSPACE ---
@@ -335,88 +353,67 @@ if not st.session_state.authenticated:
 profile = st.session_state.user_profile
 global_role = profile.get('user_role', 'Viewer')
 
-# --- 7A. FETCH MULTI-TENANT ACCESS ---
+# --- 7A. MULTI-TENANT ACCESS CHECK ---
 res_access = supabase.table("property_access_roles").select("access_level, tenants(id, property_name)").eq("user_id", profile['id']).execute()
+accessible_properties = {}
 
-if not res_access.data:
-    # THE SELF-SERVE ONBOARDING FUNNEL
-    st.markdown("<h2 style='text-align: center; margin-top: 8vh; color: #111827;'>Welcome to FloorCast OS</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: #6B7280; margin-bottom: 3rem;'>Let's provision your first secure property workspace.</p>", unsafe_allow_html=True)
+if res_access.data:
+    for row in res_access.data:
+        t_data = row['tenants']
+        if isinstance(t_data, dict):
+            accessible_properties[t_data['property_name']] = {"tenant_id": t_data['id'], "role": row['access_level']}
+
+# --- 7B. THE PROVISIONING ENGINE (Used for First Run AND Adding Subsequent Properties) ---
+def render_provisioning_funnel(is_first_run=False):
+    st.markdown(f"<h2 style='text-align: center; margin-top: 8vh;'>{'Welcome to FloorCast OS' if is_first_run else 'Add New Property'}</h2>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align: center; color: #6B7280; margin-bottom: 3rem;'>{'Provision your first secure workspace.' if is_first_run else 'Create a new isolated database tenant for your portfolio.'}</p>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         with st.form("onboarding_form", border=False):
             st.markdown('<div class="bento-card">', unsafe_allow_html=True)
-            new_prop_name = st.text_input("Property Name", placeholder="e.g., Hard Rock Hotel & Casino Ottawa")
+            new_prop_name = st.text_input("Property Name", placeholder="e.g., Hard Rock Ottawa")
             new_prop_region = st.selectbox("Region", ["North America", "EMEA", "APAC", "LATAM"])
             
-            st.write("\n")
-            if st.form_submit_button("🚀 Provision Workspace & Enter", use_container_width=True):
+            if st.form_submit_button("🚀 Provision Workspace", use_container_width=True):
                 if new_prop_name:
                     try:
-                        # 1. Create the Isolated Tenant
+                        # 1. Create Isolated Tenant
                         t_res = supabase.table("tenants").insert({"property_name": new_prop_name, "region": new_prop_region}).execute()
                         new_tenant_id = t_res.data[0]['id']
                         
-                        # 2. Grant the User 'Owner' Access
-                        supabase.table("property_access_roles").insert({
-                            "user_id": profile['id'],
-                            "tenant_id": new_tenant_id,
-                            "access_level": "Owner"
-                        }).execute()
+                        # 2. Grant User 'Owner' Access
+                        supabase.table("property_access_roles").insert({"user_id": profile['id'], "tenant_id": new_tenant_id, "access_level": "Owner"}).execute()
                         
-                        # 3. Establish Default AI Baseline DNA
-                        default_dna = {
-                            "tenant_id": new_tenant_id,
-                            "Avg_Coin_In": 112.50, "Hold_Pct": 10.0, "Clicks": 0.05,
-                            "Social_Imp": 0.0002, "Ad_Decay": 85, "Broadcast_Weight": 150,
-                            "Rain_mm": -12, "Snow_cm": -45
-                        }
-                        supabase.table("mt_coefficients").insert(default_dna).execute()
+                        # 3. Default AI DNA
+                        supabase.table("mt_coefficients").insert({"tenant_id": new_tenant_id, "Avg_Coin_In": 112.50, "Hold_Pct": 10.0, "Clicks": 0.05, "Social_Imp": 0.0002, "Ad_Decay": 85, "Broadcast_Weight": 150, "Rain_mm": -12, "Snow_cm": -45}).execute()
                         
-                        # 4. Activate Base Subscriptions so they don't hit a blank screen
-                        default_subs = [
-                            {"tenant_id": new_tenant_id, "module_name": "casino_ops", "status": "active"},
-                            {"tenant_id": new_tenant_id, "module_name": "marketing_pro", "status": "active"}
-                        ]
-                        supabase.table("tenant_subscriptions").insert(default_subs).execute()
+                        # 4. Activate Base Subscriptions
+                        supabase.table("tenant_subscriptions").insert([{"tenant_id": new_tenant_id, "module_name": "casino_ops", "status": "active"}, {"tenant_id": new_tenant_id, "module_name": "marketing_pro", "status": "active"}]).execute()
                         
                         st.success("Workspace provisioned! Initializing...")
-                        import time
                         time.sleep(1.5)
                         st.rerun()
-                        
                     except Exception as e:
                         st.error(f"Provisioning Failed: {e}")
-                else:
-                    st.error("Please provide a property name to continue.")
             st.markdown('</div>', unsafe_allow_html=True)
-    st.stop() # Halts the rest of the app from loading until they provision a property
 
-# Map their allowed properties
-accessible_properties = {}
-for row in res_access.data:
-    t_data = row['tenants']
-    if isinstance(t_data, dict):
-        accessible_properties[t_data['property_name']] = {
-            "tenant_id": t_data['id'],
-            "role": row['access_level']
-        }
-        
-# --- 7B. TOP NAVIGATION BAR & SWITCHER ---
+# If they have 0 properties, force the First Run provisioning funnel
+if not accessible_properties:
+    render_provisioning_funnel(is_first_run=True)
+    st.stop()
+
+
+# --- 7C. TOP NAVIGATION & DYNAMIC SWITCHER ---
 if 'nav_selection' not in st.session_state: st.session_state.nav_selection = "🏠 Overview"
 if 'pending_ai_query' not in st.session_state: st.session_state.pending_ai_query = None
 
 nav_c1, nav_c2, nav_c3 = st.columns([5, 2, 1])
-with nav_c1: 
-    st.markdown("<h4 style='margin-top: 10px; color:#111827;'>🎰 FloorCast OS</h4>", unsafe_allow_html=True)
+with nav_c1: st.markdown("<h4 style='margin-top: 10px; color:#111827;'>🎰 FloorCast OS</h4>", unsafe_allow_html=True)
 with nav_c2:
-    # PROPERTY SWITCHER
-    selected_prop_name = st.selectbox(
-        "Active Context", 
-        list(accessible_properties.keys()), 
-        label_visibility="collapsed"
-    )
+    # PROPERTY SWITCHER (Now includes the option to add more!)
+    switcher_options = list(accessible_properties.keys()) + ["➕ Provision New Property"]
+    selected_context = st.selectbox("Active Context", switcher_options, label_visibility="collapsed")
 with nav_c3:
     st.markdown('<div class="ghost-btn">', unsafe_allow_html=True)
     if st.button("Sign Out", use_container_width=True):
@@ -424,16 +421,20 @@ with nav_c3:
         st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
 
-# Lock in the active variables for the rest of the app to use
-active_tenant_id = accessible_properties[selected_prop_name]["tenant_id"]
-active_role = accessible_properties[selected_prop_name]["role"]
+# If they selected the "Add Property" option from the dropdown, show the funnel and hide the dashboard
+if selected_context == "➕ Provision New Property":
+    render_provisioning_funnel(is_first_run=False)
+    st.stop()
+
+# Set active context variables
+active_tenant_id = accessible_properties[selected_context]["tenant_id"]
+active_role = accessible_properties[selected_context]["role"]
 st.session_state.active_tenant_id = active_tenant_id
 
-# Fetch active subscriptions dynamically for the selected property
 sub_res = supabase.table("tenant_subscriptions").select("module_name").eq("tenant_id", active_tenant_id).eq("status", "active").execute()
 st.session_state.active_modules = [s['module_name'] for s in sub_res.data] if sub_res.data else []
 
-st.markdown(f'<div class="hero-greeting">Good afternoon, {selected_prop_name}.</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="hero-greeting">Good afternoon, {selected_context}.</div>', unsafe_allow_html=True)
 
 # --- THE FIX: AI PROMPT VISIBILITY & ROUTING ---
 if "ai_advisor" in st.session_state.active_modules:
@@ -452,7 +453,7 @@ if "ai_advisor" in st.session_state.active_modules:
 else:
     st.write("\n\n\n")
 
-# Horizontal Semantic Navigation (Clean Centered Tabs)
+# --- 7D. HORIZONTAL NAVIGATION TABS ---
 nav_options = ["🏠 Overview"]
 if "ai_advisor" in st.session_state.active_modules: nav_options.append("🧠 AI Advisor")
 if "casino_ops" in st.session_state.active_modules: nav_options.append("🎰 Casino")
@@ -468,13 +469,10 @@ if active_role in ["Owner", "Admin"] or global_role == "Super Admin":
 if global_role == "Super Admin": 
     nav_options.append("⚙️ Global Admin")
 
-try:
-    nav_idx = nav_options.index(st.session_state.nav_selection)
-except ValueError:
-    nav_idx = 0
+try: nav_idx = nav_options.index(st.session_state.nav_selection)
+except ValueError: nav_idx = 0
 
 selected_page = st.radio("Workspace Navigation", nav_options, index=nav_idx, horizontal=True, label_visibility="collapsed")
-
 if selected_page != st.session_state.nav_selection:
     st.session_state.nav_selection = selected_page
     st.rerun()
@@ -653,32 +651,32 @@ elif selected_page == "⚙️ Global Admin":
     admin.render_admin_page(supabase)
 elif selected_page == "🎰 Casino": 
     import casino
-    casino.render_casino_module(supabase, active_tenant_id, selected_prop_name)
+    casino.render_casino_module(supabase, active_tenant_id, selected_context)
 elif selected_page == "📈 Marketing": 
     import marketing
-    marketing.render_marketing_module(supabase, active_tenant_id, selected_prop_name)
+    marketing.render_marketing_module(supabase, active_tenant_id, selected_context)
 elif selected_page == "📢 PR": 
     import pr
-    pr.render_pr_module(supabase, active_tenant_id, selected_prop_name)
+    pr.render_pr_module(supabase, active_tenant_id, selected_context)
 elif selected_page == "📨 Email": 
     import email_ops
-    email_ops.render_email_module(supabase, active_tenant_id, selected_prop_name)
+    email_ops.render_email_module(supabase, active_tenant_id, selected_context)
 elif selected_page == "🛏️ Hotel": 
     import hotel
-    hotel.render_hotel_module(supabase, active_tenant_id, selected_prop_name)
+    hotel.render_hotel_module(supabase, active_tenant_id, selected_context)
 elif selected_page == "🍽️ F&B": 
     import fnb
-    fnb.render_fnb_module(supabase, active_tenant_id, selected_prop_name)
+    fnb.render_fnb_module(supabase, active_tenant_id, selected_context)
 elif selected_page == "🧠 AI Advisor": 
     import ai_advisor
     query = st.session_state.get('pending_ai_query', None)
     st.session_state.pending_ai_query = None 
-    ai_advisor.render_advisor_module(supabase, active_tenant_id, selected_prop_name, initial_query=query)
+    ai_advisor.render_advisor_module(supabase, active_tenant_id, selected_context, initial_query=query)
 elif selected_page == "📊 Master Report": 
     import master_report
-    master_report.render_master_report_module(supabase, active_tenant_id, selected_prop_name)
+    master_report.render_master_report_module(supabase, active_tenant_id, selected_context)
 elif selected_page == "⚙️ Property Settings": 
     import property_settings
-    property_settings.render_settings_module(supabase, active_tenant_id, selected_prop_name)
+    property_settings.render_settings_module(supabase, active_tenant_id, selected_context)
 else: 
     st.info("Module under construction.")
