@@ -358,6 +358,27 @@ if not st.session_state.authenticated:
         if st.button("Select Enterprise", key="b3", use_container_width=True): signup_modal("Enterprise")
     st.stop()
 
+with p3:
+        st.markdown("""
+        <div class="bento-card" style="text-align: center;">
+            <h2 style='color:#111827; margin-top:0;'>Enterprise</h2>
+            <h3 style='color:#111827; font-size:2.5rem; margin: 1rem 0;'>$999</h3>
+            <p style='color:#9CA3AF; margin-bottom: 2rem;'>/ month</p>
+            <p style='color:#6B7280; line-height: 1.8;'>✔️ All Features<br>✔️ Full Auxiliary Suite</p>
+        </div>
+        """, unsafe_allow_html=True)
+        st.write("\n")
+        if st.button("Select Enterprise", key="b3", use_container_width=True): signup_modal("Enterprise")
+
+    # --- ADD THIS SANDBOX BYPASS ---
+    st.write("\n")
+    st.markdown("<div style='text-align: center; margin-top: 2rem;'>", unsafe_allow_html=True)
+    if st.button("🛠️ Developer Sandbox (Bypass Stripe for Testing)", type="tertiary"):
+        signup_modal("Developer Sandbox")
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    st.stop()
+
 
 # ==========================================
 # --- 7. LOGGED IN: THE ACTIVE WORKSPACE ---
