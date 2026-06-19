@@ -377,11 +377,16 @@ if not st.session_state.authenticated:
 # --- 7. LOGGED IN: THE ACTIVE WORKSPACE ---
 # ==========================================
 profile = st.session_state.user_profile
+
+# --- THE FIX: Safety net if profile data drops from memory ---
+if not profile:
+    st.session_state.authenticated = False
+    st.rerun()
+
 global_role = profile.get('user_role', 'Viewer')
 
 # --- 7A. MULTI-TENANT ACCESS CHECK ---
 res_access = supabase.table("property_access_roles").select("access_level, tenants(id, property_name)").eq("user_id", profile['id']).execute()
-accessible_properties = {}
 
 if res_access.data:
     for row in res_access.data:
