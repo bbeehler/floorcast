@@ -334,6 +334,7 @@ if not st.session_state.authenticated:
         st.write("\n")
         # NEW USERS TRIGGER SIGNUP
         if st.button("Select Core", key="b1", use_container_width=True): signup_modal("Core")
+    
     with p2:
         st.markdown("""
         <div class="bento-card" style="text-align: center; border: 2px solid #2563EB;">
@@ -345,20 +346,8 @@ if not st.session_state.authenticated:
         """, unsafe_allow_html=True)
         st.write("\n")
         if st.button("Select Premium", key="b2", use_container_width=True): signup_modal("Premium")
+    
     with p3:
-        st.markdown("""
-        <div class="bento-card" style="text-align: center;">
-            <h2 style='color:#111827; margin-top:0;'>Enterprise</h2>
-            <h3 style='color:#111827; font-size:2.5rem; margin: 1rem 0;'>$999</h3>
-            <p style='color:#9CA3AF; margin-bottom: 2rem;'>/ month</p>
-            <p style='color:#6B7280; line-height: 1.8;'>✔️ All Features<br>✔️ Full Auxiliary Suite</p>
-        </div>
-        """, unsafe_allow_html=True)
-        st.write("\n")
-        if st.button("Select Enterprise", key="b3", use_container_width=True): signup_modal("Enterprise")
-    st.stop()
-
-with p3:
         st.markdown("""
         <div class="bento-card" style="text-align: center;">
             <h2 style='color:#111827; margin-top:0;'>Enterprise</h2>
@@ -377,7 +366,7 @@ with p3:
         signup_modal("Developer Sandbox")
     st.markdown("</div>", unsafe_allow_html=True)
     
-    st.stop()
+    st.stop() # Only ONE st.stop() right here at the very end!
 
 
 # ==========================================
