@@ -48,7 +48,7 @@ def render_master_report_module(supabase, tenant_id, property_name):
             st.selectbox("Load Saved Template:", [selected_template], disabled=True)
 
     # Apply template config if selected
-    active_config = {"metrics": [], "charts": []}
+    active_config = {"metrics": [], "charts": [], "chart_type": "Line"}
     if selected_template != "-- Build New Custom Report --":
         active_config = saved_reports[selected_template]['config']
 
@@ -57,7 +57,7 @@ def render_master_report_module(supabase, tenant_id, property_name):
     # --- 2. REPORT CONFIGURATOR ---
     st.markdown("<h4 style='color: #111827;'>1. Define Parameters</h4>", unsafe_allow_html=True)
     
-    c_date, c_metrics, c_charts = st.columns([1, 1.5, 1.5])
+    c_date, c_metrics, c_charts, c_type = st.columns([1, 1.5, 1.5, 1])
     
     with c_date:
         today = datetime.date.today()
@@ -84,6 +84,14 @@ def render_master_report_module(supabase, tenant_id, property_name):
             available_metrics, 
             default=active_config.get("charts", ["Gaming Revenue"])
         )
+        
+    with c_type:
+        # --- NEW: CHART TYPE SELECTOR ---
+        chart_style = st.selectbox(
+            "Visualization Style", 
+            ["Line", "Bar", "Area Fill"], 
+            index=["Line", "Bar", "Area Fill"].index(active_config.get("chart_type", "Line"))
+        )
 
     # Save Template Form
     with st.expander("💾 Save this Configuration as a Template"):
@@ -94,7 +102,11 @@ def render_master_report_module(supabase, tenant_id, property_name):
                     payload = {
                         "tenant_id": tenant_id,
                         "report_name": t_name,
-                        "config": {"metrics": selected_metrics, "charts": selected_charts}
+                        "config": {
+                            "metrics": selected_metrics, 
+                            "charts": selected_charts,
+                            "chart_type": chart_style # Saves their preferred visualization style
+                        }
                     }
                     supabase.table("mt_saved_reports").insert(payload).execute()
                     st.success(f"Template '{t_name}' saved.")
@@ -179,16 +191,33 @@ def render_master_report_module(supabase, tenant_id, property_name):
                         
                         # Plot on secondary Y axis if it's revenue vs volume to prevent squashing
                         is_currency = "Revenue" in chart_metric
+                        y_axis = "y1" if is_currency else "y2"
+                        trace_color = colors[i % len(colors)]
                         
-                        fig.add_trace(go.Scatter(
-                            x=df_grouped['date'], 
-                            y=df_grouped[col_target], 
-                            name=chart_metric,
-                            yaxis="y1" if is_currency else "y2",
-                            line=dict(width=3, color=colors[i % len(colors)])
-                        ))
+                        # --- DYNAMIC CHART RENDERING ---
+                        if chart_style == "Bar":
+                            fig.add_trace(go.Bar(
+                                x=df_grouped['date'], y=df_grouped[col_target], 
+                                name=chart_metric, yaxis=y_axis, marker_color=trace_color
+                            ))
+                        elif chart_style == "Area Fill":
+                            fig.add_trace(go.Scatter(
+                                x=df_grouped['date'], y=df_grouped[col_target], 
+                                name=chart_metric, yaxis=y_axis, fill='tozeroy', 
+                                line=dict(color=trace_color, width=2)
+                            ))
+                        else: # Default to Line
+                            fig.add_trace(go.Scatter(
+                                x=df_grouped['date'], y=df_grouped[col_target], 
+                                name=chart_metric, yaxis=y_axis, 
+                                line=dict(width=3, color=trace_color)
+                            ))
+
+            # Set barmode to group so bars don't overlap on top of each other
+            barmode = 'group' if chart_style == "Bar" else 'overlay'
 
             fig.update_layout(
+                barmode=barmode,
                 height=450, 
                 margin=dict(l=0, r=0, t=10, b=0), 
                 plot_bgcolor='rgba(0,0,0,0)', 
