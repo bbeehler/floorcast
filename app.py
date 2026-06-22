@@ -195,9 +195,9 @@ st.divider()
 # =================================================================
 if global_role == 'Super Admin':
     st.markdown('<div class="hero-title" style="text-align: left; font-size: 2.5rem; margin-top: 0;">🛡️ Command Center</div>', unsafe_allow_html=True)
-    st.markdown('<p style="color: #6B7280; font-size: 1.1rem; margin-bottom: 2rem;">Manage incoming leads, provision parent companies, and track manual billing.</p>', unsafe_allow_html=True)
+    st.markdown('<p style="color: #6B7280; font-size: 1.1rem; margin-bottom: 2rem;">Manage incoming leads, provision parent companies, create user accounts, and track manual billing.</p>', unsafe_allow_html=True)
 
-    tab_leads, tab_companies, tab_billing = st.tabs(["🎯 Lead Pipeline", "🏢 Parent Companies", "💳 Billing & Invoices"])
+    tab_leads, tab_companies, tab_users, tab_billing = st.tabs(["🎯 Lead Pipeline", "🏢 Parent Companies", "👥 User Provisioning", "💳 Billing & Invoices"])
 
     # -----------------------------------------------------------
     # TAB 1: LEAD PIPELINE
@@ -291,7 +291,63 @@ if global_role == 'Super Admin':
                 st.info("No Parent Companies provisioned yet.")
 
     # -----------------------------------------------------------
-    # TAB 3: BILLING & INVOICES
+    # TAB 3: USER PROVISIONING (The Concierge Tool)
+    # -----------------------------------------------------------
+    with tab_users:
+        st.markdown("### 🤵 Concierge Account Creation")
+        st.caption("Generate secure credentials for your clients and assign them to their Parent Company.")
+        
+        # Fetch active companies so you can link the new user directly to them
+        try:
+            active_comps = supabase.table("parent_companies").select("id, company_name").execute()
+            comp_dict = {c['company_name']: c['id'] for c in active_comps.data} if active_comps.data else {"No Companies Available": None}
+        except:
+            comp_dict = {"Error fetching companies": None}
+
+        col_form, col_space = st.columns([2, 1])
+        with col_form:
+            with st.form("concierge_setup_form"):
+                u_first = st.text_input("First Name *")
+                u_last = st.text_input("Last Name *")
+                u_email = st.text_input("Client Email *").strip().lower()
+                u_pass = st.text_input("Temporary Password *", type="password", help="The client will use this to log in for the first time.")
+                
+                st.divider()
+                
+                u_role = st.selectbox("Platform Role", ["Company Admin", "Property Admin", "User"])
+                u_company = st.selectbox("Link to Parent Company", list(comp_dict.keys()))
+                
+                if st.form_submit_button("🚀 Provision Client Account", type="primary", use_container_width=True):
+                    target_comp_id = comp_dict.get(u_company)
+                    
+                    if u_first and u_last and u_email and u_pass and target_comp_id:
+                        try:
+                            # 1. Create the secure login (Trigger automatically builds the profile)
+                            auth_res = supabase.auth.sign_up({"email": u_email, "password": u_pass})
+                            
+                            if auth_res.user:
+                                # 2. Update their profile with their real name and role
+                                supabase.table("user_profiles").update({
+                                    "first_name": u_first,
+                                    "last_name": u_last,
+                                    "global_role": u_role
+                                }).eq("id", auth_res.user.id).execute()
+                                
+                                # 3. Link them to the Parent Company so they can access their properties
+                                supabase.table("user_property_access").insert({
+                                    "user_email": u_email,
+                                    "parent_company_id": target_comp_id,
+                                    "user_role": u_role
+                                }).execute()
+                                
+                                st.success(f"✅ Success! {u_first} {u_last} can now log in to {u_company}.")
+                        except Exception as e:
+                            st.error(f"Provisioning Failed: {e}")
+                    else:
+                        st.error("Please fill in all required fields and ensure a Parent Company is selected.")
+
+    # -----------------------------------------------------------
+    # TAB 4: BILLING & INVOICES
     # -----------------------------------------------------------
     with tab_billing:
         st.markdown("### 💳 Manual Billing Ledger")
