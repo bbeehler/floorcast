@@ -66,23 +66,58 @@ if 'user_profile' not in st.session_state: st.session_state.user_profile = None
 # =================================================================
 @st.dialog("Secure Client Portal")
 def login_modal():
-    st.markdown("<p style='color: #6B7280; margin-bottom: 1.5rem;'>Authenticate to access your workspace.</p>", unsafe_allow_html=True)
-    with st.form("client_login_form", border=False):
-        email = st.text_input("Corporate Email").strip().lower()
-        password = st.text_input("Access Token", type="password")
-        if st.form_submit_button("Authenticate & Enter", use_container_width=True):
-            try:
-                auth_res = supabase.auth.sign_in_with_password({"email": email, "password": password})
-                if auth_res.user:
-                    profile_res = supabase.table("user_profiles").select("*").eq("id", auth_res.user.id).execute()
-                    if profile_res.data:
-                        st.session_state.authenticated = True
-                        st.session_state.user_profile = profile_res.data[0]
-                        st.rerun()
-                    else:
-                        st.error("Profile not found in directory. Contact Support.")
-            except Exception as e:
-                st.error("Invalid credentials.")
+    st.markdown("<p style='color: #6B7280; margin-bottom: 0.5rem;'>Authenticate to access your workspace.</p>", unsafe_allow_html=True)
+    
+    # Added a temporary tab to let you create your Master Account
+    tab_login, tab_dev = st.tabs(["Client Login", "🛠️ Dev Setup"])
+    
+    with tab_login:
+        with st.form("client_login_form", border=False):
+            email = st.text_input("Corporate Email").strip().lower()
+            password = st.text_input("Access Token", type="password")
+            if st.form_submit_button("Authenticate & Enter", use_container_width=True):
+                try:
+                    auth_res = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                    if auth_res.user:
+                        profile_res = supabase.table("user_profiles").select("*").eq("id", auth_res.user.id).execute()
+                        if profile_res.data:
+                            st.session_state.authenticated = True
+                            st.session_state.user_profile = profile_res.data[0]
+                            st.rerun()
+                        else:
+                            st.error("Profile not found in directory. Contact Support.")
+                except Exception as e:
+                    st.error("Invalid credentials.")
+                    
+    with tab_dev:
+        with st.form("dev_setup_form", border=False):
+            st.info("Use this once to create your Super Admin account. We will remove this tab later.")
+            new_first = st.text_input("First Name")
+            new_last = st.text_input("Last Name")
+            new_email = st.text_input("Master Email").strip().lower()
+            new_pass = st.text_input("Master Password", type="password")
+            
+            if st.form_submit_button("Create Super Admin Account", type="primary", use_container_width=True):
+                if new_email and new_pass and new_first:
+                    try:
+                        # 1. Create the secure Auth User
+                        auth_res = supabase.auth.sign_up({"email": new_email, "password": new_pass})
+                        
+                        if auth_res.user:
+                            # 2. Write the profile data to our new table and force 'Super Admin'
+                            profile_payload = {
+                                "id": auth_res.user.id,
+                                "email": new_email,
+                                "first_name": new_first,
+                                "last_name": new_last,
+                                "global_role": "Super Admin"
+                            }
+                            supabase.table("user_profiles").insert(profile_payload).execute()
+                            st.success("✅ Master Account Created! Switch to the 'Client Login' tab to enter.")
+                    except Exception as e:
+                        st.error(f"Setup Failed: {e}")
+                else:
+                    st.error("Fill in all fields.")
 
 # =================================================================
 # 4. LOGGED OUT: MARKETING & LEAD CAPTURE
