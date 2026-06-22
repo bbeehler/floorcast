@@ -1,5 +1,5 @@
 import streamlit as st
-import public_home, command_center, setup_wizard
+import public_home, command_center, setup_wizard, dashboard
 
 # =================================================================
 # 1. PAGE CONFIGURATION & GLOBAL STYLES
@@ -45,12 +45,8 @@ else:
         command_center.render()
         
     elif role in ['Company Admin', 'Property Admin', 'User']:
-        # If they haven't finished onboarding, trap them in the wizard
         if not setup_complete:
             setup_wizard.render()
-        # If they have, let them into the main app
         else:
-            st.success("Welcome to the Main Operational Dashboard! (We will build this next).")
-            if st.button("Sign Out"):
-                st.session_state.clear()
-                st.rerun()
+            # THE MAGIC HAPPENS HERE:
+            dashboard.render()
