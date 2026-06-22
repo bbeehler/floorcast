@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import time
 from database import supabase
 
 # =================================================================
