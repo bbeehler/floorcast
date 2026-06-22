@@ -1,5 +1,5 @@
 import streamlit as st
-from views import public_home, command_center
+import public_home, command_center
 
 # =================================================================
 # 1. PAGE CONFIGURATION & GLOBAL STYLES
