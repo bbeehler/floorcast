@@ -170,18 +170,224 @@ if not st.session_state.authenticated:
     st.stop() # Stops execution for logged-out users
 
 # =================================================================
-# 5. LOGGED IN: THE WORKSPACE ROUTER
+# 5. LOGGED IN: THE WORKSPACE ROUTER & CRM
 # =================================================================
 profile = st.session_state.user_profile
 global_role = profile.get('global_role', 'User')
 
-# Temporary Navigation Placeholder to prove login works
-st.sidebar.markdown(f"**User:** {profile.get('first_name', 'User')}")
-st.sidebar.caption(f"Global Role: {global_role}")
+# --- Workspace Navigation Bar ---
+nav_c1, nav_c2, nav_c3 = st.columns([6, 1, 1])
+with nav_c1: 
+    st.markdown("<h4 style='margin-top: 10px; color:#111827;'>🎰 FloorCast OS</h4>", unsafe_allow_html=True)
+with nav_c2:
+    st.markdown(f"<p style='margin-top: 15px; color:#6B7280; font-size: 0.9rem; text-align: right;'>{profile.get('first_name', '')} ({global_role})</p>", unsafe_allow_html=True)
+with nav_c3:
+    st.markdown('<div class="ghost-btn">', unsafe_allow_html=True)
+    if st.button("Sign Out", use_container_width=True):
+        st.session_state.clear()
+        st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
 
-if st.sidebar.button("Log Out"):
-    st.session_state.clear()
-    st.rerun()
+st.divider()
+
+# =================================================================
+# 5A. SUPER ADMIN CRM 
+# =================================================================
+if global_role == 'Super Admin':
+    st.markdown('<div class="hero-title" style="text-align: left; font-size: 2.5rem; margin-top: 0;">🛡️ Command Center</div>', unsafe_allow_html=True)
+    st.markdown('<p style="color: #6B7280; font-size: 1.1rem; margin-bottom: 2rem;">Manage incoming leads, provision parent companies, and track manual billing.</p>', unsafe_allow_html=True)
+
+    tab_leads, tab_companies, tab_billing = st.tabs(["🎯 Lead Pipeline", "🏢 Parent Companies", "💳 Billing & Invoices"])
+
+    # -----------------------------------------------------------
+    # TAB 1: LEAD PIPELINE
+    # -----------------------------------------------------------
+    with tab_leads:
+        st.markdown("### 📥 Inbound Enterprise Requests")
+        try:
+            leads_res = supabase.table("leads").select("*").order("created_at", desc=True).execute()
+            if leads_res.data:
+                df_leads = pd.DataFrame(leads_res.data)
+                
+                # Metrics
+                c1, c2, c3 = st.columns(3)
+                c1.metric("Total Leads", len(df_leads))
+                c2.metric("New Leads", len(df_leads[df_leads['status'] == 'New Lead']))
+                c3.metric("Converted", len(df_leads[df_leads['status'] == 'Converted']))
+                
+                st.write("\n")
+                
+                # Lead Cards
+                for _, lead in df_leads.iterrows():
+                    with st.container(border=True):
+                        col_info, col_action = st.columns([3, 1])
+                        with col_info:
+                            status_color = "#10B981" if lead['status'] == 'Converted' else "#F59E0B" if lead['status'] == 'New Lead' else "#6B7280"
+                            st.markdown(f"**{lead['company_name']}** — {lead['first_name']} {lead['last_name']}")
+                            st.markdown(f"📧 {lead['email']} | 📞 {lead.get('phone', 'N/A')}")
+                            st.caption(f"Status: <span style='color: {status_color}; font-weight: 600;'>{lead['status']}</span> | Submitted: {str(lead['created_at'])[:10]}", unsafe_allow_html=True)
+                            if lead.get('message'):
+                                st.info(f"**Goal:** {lead['message']}")
+                        
+                        with col_action:
+                            if lead['status'] != 'Converted':
+                                if st.button("✔️ Mark Contacted", key=f"contact_{lead['id']}", use_container_width=True):
+                                    supabase.table("leads").update({"status": "Contacted"}).eq("id", lead['id']).execute()
+                                    st.rerun()
+                                if st.button("🚀 Convert to Account", key=f"convert_{lead['id']}", type="primary", use_container_width=True):
+                                    # Move to Parent Companies table
+                                    payload = {
+                                        "company_name": lead['company_name'],
+                                        "billing_email": lead['email'],
+                                        "account_status": "Active"
+                                    }
+                                    try:
+                                        supabase.table("parent_companies").insert(payload).execute()
+                                        supabase.table("leads").update({"status": "Converted"}).eq("id", lead['id']).execute()
+                                        st.success(f"Created Parent Company: {lead['company_name']}")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"Conversion Error: {e}")
+            else:
+                st.info("The lead pipeline is currently empty.")
+        except Exception as e:
+            st.error(f"Database Error: {e}")
+
+    # -----------------------------------------------------------
+    # TAB 2: PARENT COMPANIES
+    # -----------------------------------------------------------
+    with tab_companies:
+        col_list, col_add = st.columns([2, 1])
+        
+        try:
+            comp_res = supabase.table("parent_companies").select("*").order("company_name").execute()
+            df_comps = pd.DataFrame(comp_res.data) if comp_res.data else pd.DataFrame()
+        except:
+            df_comps = pd.DataFrame()
+
+        with col_add:
+            st.markdown("### ➕ Manual Provision")
+            with st.form("add_parent_company"):
+                new_c_name = st.text_input("Company Name *")
+                new_c_email = st.text_input("Billing Email *")
+                if st.form_submit_button("Create Parent Account", use_container_width=True):
+                    if new_c_name and new_c_email:
+                        supabase.table("parent_companies").insert({"company_name": new_c_name, "billing_email": new_c_email}).execute()
+                        st.success("Company created.")
+                        st.rerun()
+                    else:
+                        st.error("Fields required.")
+
+        with col_list:
+            st.markdown("### 🏢 Active Corporate Accounts")
+            if not df_comps.empty:
+                for _, comp in df_comps.iterrows():
+                    with st.expander(f"🏦 {comp['company_name']}"):
+                        st.write(f"**Billing Email:** {comp['billing_email']}")
+                        owed_color = "#EF4444" if comp['total_owed'] > 0 else "#10B981"
+                        st.markdown(f"**Total Outstanding Balance:** <span style='color: {owed_color}; font-size: 1.2rem; font-weight: 600;'>${comp['total_owed']:,.2f}</span>", unsafe_allow_html=True)
+                        st.caption(f"Status: {comp['account_status']} | Company ID: {comp['id']}")
+            else:
+                st.info("No Parent Companies provisioned yet.")
+
+    # -----------------------------------------------------------
+    # TAB 3: BILLING & INVOICES
+    # -----------------------------------------------------------
+    with tab_billing:
+        st.markdown("### 💳 Manual Billing Ledger")
+        
+        if df_comps.empty:
+            st.warning("You must provision a Parent Company before you can generate invoices.")
+        else:
+            comp_options = {c['company_name']: c['id'] for _, c in df_comps.iterrows()}
+            
+            b_col1, b_col2 = st.columns(2)
+            
+            # --- CREATE INVOICE ---
+            with b_col1:
+                with st.form("create_invoice_form"):
+                    st.markdown("#### 📝 Issue New Invoice")
+                    inv_comp = st.selectbox("Select Parent Company", list(comp_options.keys()))
+                    inv_amount = st.number_input("Invoice Amount ($)", min_value=0.0, step=100.0)
+                    inv_due = st.date_input("Due Date")
+                    
+                    if st.form_submit_button("Issue Invoice", use_container_width=True):
+                        if inv_amount > 0:
+                            comp_id = comp_options[inv_comp]
+                            try:
+                                # 1. Create Invoice
+                                supabase.table("invoices").insert({
+                                    "parent_company_id": comp_id,
+                                    "invoice_amount": inv_amount,
+                                    "due_date": str(inv_due)
+                                }).execute()
+                                
+                                # 2. Update Company Total Owed
+                                current_owed = df_comps[df_comps['id'] == comp_id].iloc[0]['total_owed']
+                                new_total = float(current_owed) + float(inv_amount)
+                                supabase.table("parent_companies").update({"total_owed": new_total}).eq("id", comp_id).execute()
+                                
+                                st.success("Invoice issued & balance updated.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Billing Error: {e}")
+                        else:
+                            st.error("Amount must be greater than zero.")
+
+            # --- LOG PAYMENT ---
+            with b_col2:
+                with st.form("log_payment_form"):
+                    st.markdown("#### 💰 Log Received Payment")
+                    pay_comp = st.selectbox("Select Paying Company", list(comp_options.keys()), key="pay_comp")
+                    pay_amount = st.number_input("Amount Received ($)", min_value=0.0, step=100.0)
+                    pay_method = st.selectbox("Payment Method", ["Wire Transfer", "ACH", "Check", "Credit Card"])
+                    pay_notes = st.text_input("Transaction / Check # (Optional)")
+                    
+                    if st.form_submit_button("Process Payment", use_container_width=True):
+                        if pay_amount > 0:
+                            comp_id = comp_options[pay_comp]
+                            try:
+                                # 1. Log Payment
+                                supabase.table("payments").insert({
+                                    "parent_company_id": comp_id,
+                                    "amount_paid": pay_amount,
+                                    "payment_method": pay_method,
+                                    "notes": pay_notes
+                                }).execute()
+                                
+                                # 2. Reduce Company Total Owed
+                                current_owed = df_comps[df_comps['id'] == comp_id].iloc[0]['total_owed']
+                                new_total = max(0.0, float(current_owed) - float(pay_amount))
+                                supabase.table("parent_companies").update({"total_owed": new_total}).eq("id", comp_id).execute()
+                                
+                                st.success("Payment logged & balance reduced.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Payment Error: {e}")
+                        else:
+                            st.error("Amount must be greater than zero.")
+            
+            # --- OUTSTANDING INVOICES ---
+            st.divider()
+            st.markdown("#### 🧾 Outstanding Invoices")
+            try:
+                inv_res = supabase.table("invoices").select("*, parent_companies(company_name)").eq("status", "Pending").order("due_date").execute()
+                if inv_res.data:
+                    df_inv = pd.DataFrame(inv_res.data)
+                    df_inv['Company'] = df_inv['parent_companies'].apply(lambda x: x['company_name'])
+                    df_inv = df_inv[['Company', 'invoice_amount', 'due_date', 'status']]
+                    st.dataframe(df_inv, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No pending invoices. All accounts are settled.")
+            except:
+                st.info("Unable to fetch invoices.")
+
+# =================================================================
+# 5B. CLIENT WORKSPACE (WIZARD & DASHBOARD)
+# =================================================================
+elif global_role in ['User', 'Company Admin', 'Property Admin']:
+    st.info("🚀 Welcome to FloorCast OS.")
+    st.markdown("The **Self-Serve Setup Wizard** will be built here in the next phase. This will guide clients through adding properties, toggling modules, setting the fiscal year, and uploading initial data.")
 
 st.title(f"Welcome back, {profile.get('first_name', 'User')}.")
 st.info("The Logged-In Workspace router will be built here in Phase 2.")
