@@ -1,5 +1,5 @@
 import streamlit as st
-import public_home, command_center
+import public_home, command_center, setup_wizard
 
 # =================================================================
 # 1. PAGE CONFIGURATION & GLOBAL STYLES
@@ -35,19 +35,22 @@ if 'user_profile' not in st.session_state: st.session_state.user_profile = None
 # 3. THE WORKSPACE ROUTER
 # =================================================================
 if not st.session_state.authenticated:
-    # If not logged in, show the public home page
     public_home.render()
 
 else:
-    # If logged in, check their role and route them
     role = st.session_state.user_profile.get('global_role')
+    setup_complete = st.session_state.user_profile.get('setup_complete', False)
     
     if role == 'Super Admin':
         command_center.render()
         
     elif role in ['Company Admin', 'Property Admin', 'User']:
-        # TODO: Route to Setup Wizard or Dashboard based on setup status
-        st.info("The Setup Wizard is currently under construction. Please check back later.")
-        if st.button("Sign Out"):
-            st.session_state.clear()
-            st.rerun()
+        # If they haven't finished onboarding, trap them in the wizard
+        if not setup_complete:
+            setup_wizard.render()
+        # If they have, let them into the main app
+        else:
+            st.success("Welcome to the Main Operational Dashboard! (We will build this next).")
+            if st.button("Sign Out"):
+                st.session_state.clear()
+                st.rerun()
