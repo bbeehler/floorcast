@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from core.database import supabase
+from database import supabase
 
 def render():
     profile = st.session_state.user_profile
