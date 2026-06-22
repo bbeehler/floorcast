@@ -3,7 +3,7 @@ import pandas as pd
 from database import supabase
 
 # =================================================================
-# CONVERSION WIZARD MODAL
+# MODALS & DIALOGS
 # =================================================================
 @st.dialog("🚀 Convert Lead & Provision Account")
 def convert_lead_modal(lead):
@@ -13,9 +13,7 @@ def convert_lead_modal(lead):
         st.markdown("#### 1. Corporate Account")
         c_name = st.text_input("Parent Company Name", value=lead['company_name'])
         c_email = st.text_input("Billing Email", value=lead['email'])
-        
         st.divider()
-        
         st.markdown("#### 2. Master Admin Login")
         u_first = st.text_input("First Name", value=lead['first_name'])
         u_last = st.text_input("Last Name", value=lead['last_name'])
@@ -25,41 +23,55 @@ def convert_lead_modal(lead):
         if st.form_submit_button("Create Company & Provision Admin", type="primary", use_container_width=True):
             if u_pass:
                 try:
-                    # 1. Create the Parent Company
-                    comp_res = supabase.table("parent_companies").insert({
-                        "company_name": c_name, 
-                        "billing_email": c_email
-                    }).execute()
-                    
+                    comp_res = supabase.table("parent_companies").insert({"company_name": c_name, "billing_email": c_email}).execute()
                     new_comp_id = comp_res.data[0]['id']
-                    
-                    # 2. Create the Auth User
                     auth_res = supabase.auth.sign_up({"email": u_email, "password": u_pass})
-                    
                     if auth_res.user:
-                        # 3. Update the Profile with real names and 'Company Admin' role
-                        supabase.table("user_profiles").update({
-                            "first_name": u_first,
-                            "last_name": u_last,
-                            "global_role": "Company Admin"
-                        }).eq("id", auth_res.user.id).execute()
-                        
-                        # 4. Link the user to the new Parent Company
-                        supabase.table("user_property_access").insert({
-                            "user_email": u_email,
-                            "parent_company_id": new_comp_id,
-                            "user_role": "Company Admin"
-                        }).execute()
-                        
-                        # 5. Mark the Lead as Converted
+                        supabase.table("user_profiles").update({"first_name": u_first, "last_name": u_last, "global_role": "Company Admin"}).eq("id", auth_res.user.id).execute()
+                        supabase.table("user_property_access").insert({"user_email": u_email, "parent_company_id": new_comp_id, "user_role": "Company Admin"}).execute()
                         supabase.table("leads").update({"status": "Converted"}).eq("id", lead['id']).execute()
-                        
                         st.success("✅ Account fully provisioned!")
                         st.rerun()
                 except Exception as e:
                     st.error(f"Conversion Failed: {e}")
             else:
-                st.error("A temporary password is required to create the account.")
+                st.error("A temporary password is required.")
+
+@st.dialog("✏️ Edit Company Details")
+def edit_company_modal(comp):
+    with st.form(f"edit_form_{comp['id']}"):
+        new_name = st.text_input("Company Name", value=comp['company_name'])
+        new_email = st.text_input("Billing Email", value=comp['billing_email'])
+        new_status = st.selectbox("Account Status", ["Active", "Suspended", "Churned"], index=["Active", "Suspended", "Churned"].index(comp.get('account_status', 'Active')))
+        
+        if st.form_submit_button("Save Changes", type="primary", use_container_width=True):
+            try:
+                supabase.table("parent_companies").update({
+                    "company_name": new_name,
+                    "billing_email": new_email,
+                    "account_status": new_status
+                }).eq("id", comp['id']).execute()
+                st.success("Company details updated.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Update failed: {e}")
+
+@st.dialog("⚠️ Delete Parent Company")
+def delete_company_modal(comp):
+    st.error(f"Are you sure you want to delete **{comp['company_name']}**?")
+    st.warning("This will permanently remove the company, sever access for all its users, and delete associated subscriptions and pending invoices.")
+    confirm = st.text_input(f"Type '{comp['company_name']}' to confirm:")
+    
+    if st.button("Permanently Delete Company", type="primary", use_container_width=True):
+        if confirm == comp['company_name']:
+            try:
+                supabase.table("parent_companies").delete().eq("id", comp['id']).execute()
+                st.success("Company deleted.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Deletion failed. (If this persists, ensure Supabase ON DELETE CASCADE is enabled for associated tables). Error: {e}")
+        else:
+            st.error("Confirmation name does not match.")
 
 
 # =================================================================
@@ -89,7 +101,7 @@ def render():
     st.markdown('<div class="hero-title" style="text-align: left; font-size: 2.5rem; margin-top: 0;">🛡️ Command Center</div>', unsafe_allow_html=True)
     st.markdown('<p style="color: #6B7280; font-size: 1.1rem; margin-bottom: 2rem;">Manage leads, provision accounts, assign modules, and automate billing.</p>', unsafe_allow_html=True)
 
-    tab_leads, tab_companies, tab_users, tab_subs, tab_billing = st.tabs(["🎯 Lead Pipeline", "🏢 Parent Companies", "👥 User Provisioning", "📦 Subscriptions", "💳 Billing & Invoices"])
+    tab_leads, tab_companies, tab_users, tab_subs, tab_billing = st.tabs(["🎯 Lead Pipeline", "🏢 Parent Companies", "👥 User Management", "📦 Subscriptions", "💳 Billing & Invoices"])
 
     # --- FETCH GLOBAL DATA ---
     try:
@@ -133,7 +145,7 @@ def render():
         except Exception as e:
             st.error(f"Database Error: {e}")
 
-    # --- TAB 2: PARENT COMPANIES ---
+    # --- TAB 2: PARENT COMPANIES (WITH FULL CRUD) ---
     with tab_companies:
         col_list, col_add = st.columns([2, 1])
         with col_add:
@@ -151,38 +163,88 @@ def render():
             st.markdown("### 🏢 Active Corporate Accounts")
             if not df_comps.empty:
                 for _, comp in df_comps.iterrows():
-                    with st.expander(f"🏦 {comp['company_name']}"):
+                    with st.expander(f"🏦 {comp['company_name']} - {comp.get('account_status', 'Active')}"):
                         st.write(f"**Billing Email:** {comp['billing_email']}")
                         owed_color = "#EF4444" if comp['total_owed'] > 0 else "#10B981"
                         st.markdown(f"**Outstanding Balance:** <span style='color: {owed_color}; font-weight: 600;'>${comp['total_owed']:,.2f}</span>", unsafe_allow_html=True)
+                        
+                        # EDIT & DELETE CONTROLS
+                        c_edit, c_del = st.columns(2)
+                        with c_edit:
+                            if st.button("✏️ Edit Details", key=f"edit_{comp['id']}", use_container_width=True):
+                                edit_company_modal(comp)
+                        with c_del:
+                            if st.button("🗑️ Delete Company", key=f"del_{comp['id']}", use_container_width=True):
+                                delete_company_modal(comp)
             else:
                 st.info("No Parent Companies provisioned yet.")
 
-    # --- TAB 3: USER PROVISIONING ---
+    # --- TAB 3: USER MANAGEMENT (NOW WITH SUPER ADMIN CONTROL) ---
     with tab_users:
-        st.markdown("### 🤵 Concierge Account Creation")
-        col_form, _ = st.columns([2, 1])
-        with col_form:
+        u_col_form, u_col_list = st.columns([1, 1])
+        
+        with u_col_form:
+            st.markdown("### 🤵 Concierge Account Creation")
             with st.form("concierge_setup_form"):
                 u_first = st.text_input("First Name *")
                 u_last = st.text_input("Last Name *")
-                u_email = st.text_input("Client Email *").strip().lower()
+                u_email = st.text_input("Account Email *").strip().lower()
                 u_pass = st.text_input("Temporary Password *", type="password")
                 st.divider()
-                u_role = st.selectbox("Platform Role", ["Company Admin", "Property Admin", "User"])
-                u_company = st.selectbox("Link to Parent Company", list(comp_dict.keys())) if comp_dict else st.selectbox("Company", ["No Companies Available"])
                 
-                if st.form_submit_button("🚀 Provision Client Account", type="primary", use_container_width=True):
-                    if u_first and u_last and u_email and u_pass and comp_dict:
-                        target_comp_id = comp_dict.get(u_company)
+                # Super Admin is now an option
+                u_role = st.selectbox("Platform Role", ["Super Admin", "Company Admin", "Property Admin", "User"])
+                
+                # Logic to disable company selection if they are a Super Admin
+                comp_options = list(comp_dict.keys()) if comp_dict else ["No Companies Available"]
+                u_company = st.selectbox("Link to Parent Company", comp_options, disabled=(u_role == "Super Admin"))
+                
+                if st.form_submit_button("🚀 Provision Account", type="primary", use_container_width=True):
+                    if u_first and u_email and u_pass:
                         try:
                             auth_res = supabase.auth.sign_up({"email": u_email, "password": u_pass})
                             if auth_res.user:
-                                supabase.table("user_profiles").update({"first_name": u_first, "last_name": u_last, "global_role": u_role}).eq("id", auth_res.user.id).execute()
-                                supabase.table("user_property_access").insert({"user_email": u_email, "parent_company_id": target_comp_id, "user_role": u_role}).execute()
-                                st.success(f"✅ Success! {u_first} can now log in.")
+                                supabase.table("user_profiles").update({
+                                    "first_name": u_first, 
+                                    "last_name": u_last, 
+                                    "global_role": u_role
+                                }).eq("id", auth_res.user.id).execute()
+                                
+                                # Only link to a company if they are NOT a Super Admin
+                                if u_role != "Super Admin" and comp_dict:
+                                    target_comp_id = comp_dict.get(u_company)
+                                    supabase.table("user_property_access").insert({
+                                        "user_email": u_email, 
+                                        "parent_company_id": target_comp_id, 
+                                        "user_role": u_role
+                                    }).execute()
+                                
+                                st.success(f"✅ {u_role} account created for {u_email}!")
+                                st.rerun()
                         except Exception as e:
                             st.error(f"Provisioning Failed: {e}")
+                    else:
+                        st.error("Please fill in required fields.")
+
+        with u_col_list:
+            st.markdown("### 📋 Active User Directory")
+            try:
+                users_res = supabase.table("user_profiles").select("*").execute()
+                if users_res.data:
+                    df_users = pd.DataFrame(users_res.data)
+                    for _, u in df_users.iterrows():
+                        with st.expander(f"👤 {u['first_name']} {u['last_name']} ({u['global_role']})"):
+                            st.write(f"**Email:** {u['email']}")
+                            
+                            # Simple revoke access button (Deletes their profile data, freezing the account)
+                            if st.button("🚫 Revoke System Access", key=f"revoke_{u['id']}", use_container_width=True):
+                                supabase.table("user_profiles").delete().eq("id", u['id']).execute()
+                                st.success("Access revoked. User profile deleted.")
+                                st.rerun()
+                else:
+                    st.info("No users found.")
+            except Exception as e:
+                st.error("Could not load user directory.")
 
     # --- TAB 4: SUBSCRIPTIONS ---
     with tab_subs:
@@ -191,12 +253,9 @@ def render():
             st.warning("Provision a Parent Company first.")
         else:
             sub_col1, sub_col2 = st.columns([1, 2])
-            
             with sub_col1:
                 selected_comp_sub = st.selectbox("Select Company to Manage", list(comp_dict.keys()), key="sub_comp_select")
                 target_id = comp_dict[selected_comp_sub]
-                
-                # Fetch available modules
                 try:
                     mods_res = supabase.table("system_modules").select("*").execute()
                     mod_data = {m['module_name']: m for m in mods_res.data} if mods_res.data else {}
@@ -208,20 +267,15 @@ def render():
                     if mod_data:
                         selected_mod = st.selectbox("Module to Add", list(mod_data.keys()))
                         custom_price = st.number_input("Monthly Price ($)", value=float(mod_data[selected_mod]['base_price']), step=100.0)
-                        
                         if st.form_submit_button("➕ Activate Subscription", use_container_width=True):
                             try:
-                                supabase.table("company_subscriptions").insert({
-                                    "parent_company_id": target_id,
-                                    "module_id": mod_data[selected_mod]['id'],
-                                    "agreed_price": custom_price
-                                }).execute()
+                                supabase.table("company_subscriptions").insert({"parent_company_id": target_id, "module_id": mod_data[selected_mod]['id'], "agreed_price": custom_price}).execute()
                                 st.success("Subscription Activated!")
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"Failed (Does this company already have this module?): {e}")
+                                st.error(f"Failed (Already subscribed?): {e}")
                     else:
-                        st.info("No modules found in catalog. Check your database setup.")
+                        st.info("No modules found in catalog.")
 
             with sub_col2:
                 st.markdown(f"#### Active Subscriptions for {selected_comp_sub}")
@@ -233,11 +287,10 @@ def render():
                         df_subs = df_subs[['Module', 'agreed_price', 'created_at']]
                         df_subs.rename(columns={'agreed_price': 'Monthly Rate ($)', 'created_at': 'Start Date'}, inplace=True)
                         st.dataframe(df_subs, use_container_width=True, hide_index=True)
-                        
                         total_mrr = df_subs['Monthly Rate ($)'].sum()
                         st.markdown(f"**Total MRR:** <span style='color: #10B981; font-size: 1.2rem; font-weight: 600;'>${total_mrr:,.2f} / month</span>", unsafe_allow_html=True)
                     else:
-                        st.info("No active subscriptions. Assign a module on the left.")
+                        st.info("No active subscriptions.")
                 except:
                     st.error("Unable to load subscriptions.")
 
@@ -248,32 +301,21 @@ def render():
             st.warning("Provision a Parent Company first.")
         else:
             b_col1, b_col2 = st.columns(2)
-            
-            # --- AUTO INVOICE ---
             with b_col1:
                 with st.form("auto_invoice_form"):
                     st.markdown("#### 📝 Generate Monthly Invoice")
                     inv_comp = st.selectbox("Select Parent Company", list(comp_dict.keys()), key="inv_select")
                     inv_due = st.date_input("Due Date")
-                    
                     if st.form_submit_button("Calculate & Issue Invoice", use_container_width=True):
                         comp_id = comp_dict[inv_comp]
-                        
-                        # Calculate MRR based on active subscriptions
                         subs_res = supabase.table("company_subscriptions").select("agreed_price").eq("parent_company_id", comp_id).eq("status", "Active").execute()
                         if subs_res.data:
                             calc_amount = sum(float(s['agreed_price']) for s in subs_res.data)
                             if calc_amount > 0:
                                 try:
-                                    supabase.table("invoices").insert({
-                                        "parent_company_id": comp_id,
-                                        "invoice_amount": calc_amount,
-                                        "due_date": str(inv_due)
-                                    }).execute()
-                                    
+                                    supabase.table("invoices").insert({"parent_company_id": comp_id, "invoice_amount": calc_amount, "due_date": str(inv_due)}).execute()
                                     current_owed = df_comps[df_comps['id'] == comp_id].iloc[0]['total_owed']
                                     supabase.table("parent_companies").update({"total_owed": float(current_owed) + float(calc_amount)}).eq("id", comp_id).execute()
-                                    
                                     st.success(f"Issued invoice for ${calc_amount:,.2f}")
                                     st.rerun()
                                 except Exception as e:
@@ -283,7 +325,6 @@ def render():
                         else:
                             st.error(f"{inv_comp} has no active subscriptions to bill for.")
 
-            # --- LOG PAYMENT ---
             with b_col2:
                 with st.form("log_payment_form"):
                     st.markdown("#### 💰 Log Received Payment")
@@ -305,7 +346,6 @@ def render():
                         else:
                             st.error("Amount must be greater than zero.")
             
-            # --- OUTSTANDING INVOICES ---
             st.divider()
             st.markdown("#### 🧾 Outstanding Invoices")
             try:
@@ -316,6 +356,6 @@ def render():
                     df_inv = df_inv[['Company', 'invoice_amount', 'due_date', 'status']]
                     st.dataframe(df_inv, use_container_width=True, hide_index=True)
                 else:
-                    st.info("No pending invoices. All accounts are settled.")
+                    st.info("No pending invoices.")
             except:
                 st.info("Unable to fetch invoices.")
