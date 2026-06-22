@@ -1,6 +1,7 @@
 import streamlit as st
 import time
 from database import supabase
+import pandas as pd
 
 def render():
     profile = st.session_state.user_profile
@@ -95,35 +96,49 @@ def render():
     # ==========================================
     # STEP 3: DATA SEED
     # ==========================================
-    elif st.session_state.wizard_step == 3:
-        with st.container(border=True):
-            st.markdown("#### 📊 Initial Data Sync")
-            st.caption("FloorCast OS requires historical baselines to train your predictive AI. Upload your standard export files below.")
-            
-            with st.form("step3_form"):
-                st.file_uploader("🎰 Upload Historical Casino Ledger (CSV)", type=["csv"], help="Must include Coin-In, Table Drop, and Date columns.")
-                st.file_uploader("🏨 Upload Hotel ADR/Occupancy (CSV) - Optional", type=["csv"])
-                st.file_uploader("🍔 Upload F&B Covers (CSV) - Optional", type=["csv"])
-                
-                st.write("\n")
-                c_back, c_launch = st.columns([1, 3])
-                with c_back:
-                    if st.form_submit_button("⬅️ Back"):
-                        st.session_state.wizard_step = 2
-                        st.rerun()
-                with c_launch:
+    with c_launch:
                     if st.form_submit_button("🚀 Train AI & Launch Dashboard", type="primary"):
-                        with st.spinner("Processing data, training localized models, and initializing your workspace..."):
-                            time.sleep(2) # Simulates heavy processing for dramatic SaaS effect
-                            
+                        with st.spinner("Parsing historical ledger and initializing AI models..."):
                             try:
-                                # Mark the user as completely onboarded in the database
+                                # THE DYNAMIC DATA PARSER
+                                if ledger_file is not None:
+                                    # 1. Read the CSV
+                                    df = pd.read_csv(ledger_file)
+                                    
+                                    # 2. Standardize column names (make lowercase, remove spaces)
+                                    df.columns = df.columns.str.strip().str.lower().str.replace(' ', '_')
+                                    
+                                    # 3. Clean currency strings (remove $ and commas) and convert to float
+                                    for col in ['coin_in', 'table_drop']:
+                                        if col in df.columns:
+                                            df[col] = df[col].replace('[\$,]', '', regex=True).astype(float)
+                                        else:
+                                            df[col] = 0.0 # Fallback if column is missing
+                                            
+                                    # 4. Prepare data for Supabase bulk insert
+                                    records = []
+                                    comp_id = access_res.data[0]['parent_company_id']
+                                    
+                                    for _, row in df.iterrows():
+                                        records.append({
+                                            "parent_company_id": comp_id,
+                                            "record_date": str(row['date']) if 'date' in df.columns else None,
+                                            "coin_in": row['coin_in'],
+                                            "table_drop": row['table_drop']
+                                        })
+                                        
+                                    # 5. Push to Database (Filtering out rows without dates)
+                                    valid_records = [r for r in records if r['record_date'] is not None]
+                                    if valid_records:
+                                        supabase.table("property_performance").upsert(valid_records).execute()
+
+                                # Mark the user as completely onboarded
                                 supabase.table("user_profiles").update({"setup_complete": True}).eq("id", profile['id']).execute()
-                                
-                                # Update their current session so the app routes them to the dashboard
                                 st.session_state.user_profile['setup_complete'] = True
                                 
-                                st.balloons() # Fun Streamlit Easter Egg for completion
+                                st.balloons()
+                                time.sleep(1.5)
                                 st.rerun()
+                                
                             except Exception as e:
-                                st.error(f"Launch failed: {e}")
+                                st.error(f"Data parsing failed. Please check your CSV format. Error: {e}")
