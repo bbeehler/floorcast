@@ -1,6 +1,0 @@
-# Ignore Streamlit Secrets
-.streamlit/secrets.toml
-
-# Ignore Python cache files
-__pycache__/
-*.pyc
