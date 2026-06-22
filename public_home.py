@@ -1,5 +1,5 @@
 import streamlit as st
-from core.database import supabase
+from database import supabase
 
 @st.dialog("Secure Client Portal")
 def login_modal():
