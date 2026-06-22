@@ -69,9 +69,39 @@ def delete_company_modal(comp):
                 st.success("Company deleted.")
                 st.rerun()
             except Exception as e:
-                st.error(f"Deletion failed. (If this persists, ensure Supabase ON DELETE CASCADE is enabled for associated tables). Error: {e}")
+                st.error(f"Deletion failed. Error: {e}")
         else:
             st.error("Confirmation name does not match.")
+
+@st.dialog("✏️ Edit Module Details")
+def edit_module_modal(mod):
+    with st.form(f"edit_mod_{mod['id']}"):
+        m_name = st.text_input("Module Name", value=mod['module_name'])
+        m_desc = st.text_area("Description", value=mod.get('description', ''))
+        m_price = st.number_input("Base Price / Month ($)", value=float(mod['base_price']), step=50.0)
+        
+        if st.form_submit_button("Save Module", type="primary", use_container_width=True):
+            try:
+                supabase.table("system_modules").update({
+                    "module_name": m_name, "description": m_desc, "base_price": m_price
+                }).eq("id", mod['id']).execute()
+                st.success("Module updated.")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Update failed: {e}")
+
+@st.dialog("⚠️ Delete Module")
+def delete_module_modal(mod):
+    st.error(f"Delete **{mod['module_name']}** from your global catalog?")
+    st.warning("This will instantly cancel this subscription for ANY client currently using it.")
+    
+    if st.button("Permanently Delete Module", type="primary", use_container_width=True):
+        try:
+            supabase.table("system_modules").delete().eq("id", mod['id']).execute()
+            st.success("Module deleted.")
+            st.rerun()
+        except Exception as e:
+            st.error(f"Deletion failed: {e}")
 
 
 # =================================================================
@@ -145,7 +175,7 @@ def render():
         except Exception as e:
             st.error(f"Database Error: {e}")
 
-    # --- TAB 2: PARENT COMPANIES (WITH FULL CRUD) ---
+    # --- TAB 2: PARENT COMPANIES ---
     with tab_companies:
         col_list, col_add = st.columns([2, 1])
         with col_add:
@@ -168,7 +198,6 @@ def render():
                         owed_color = "#EF4444" if comp['total_owed'] > 0 else "#10B981"
                         st.markdown(f"**Outstanding Balance:** <span style='color: {owed_color}; font-weight: 600;'>${comp['total_owed']:,.2f}</span>", unsafe_allow_html=True)
                         
-                        # EDIT & DELETE CONTROLS
                         c_edit, c_del = st.columns(2)
                         with c_edit:
                             if st.button("✏️ Edit Details", key=f"edit_{comp['id']}", use_container_width=True):
@@ -179,7 +208,7 @@ def render():
             else:
                 st.info("No Parent Companies provisioned yet.")
 
-    # --- TAB 3: USER MANAGEMENT (NOW WITH SUPER ADMIN CONTROL) ---
+    # --- TAB 3: USER MANAGEMENT ---
     with tab_users:
         u_col_form, u_col_list = st.columns([1, 1])
         
@@ -192,10 +221,7 @@ def render():
                 u_pass = st.text_input("Temporary Password *", type="password")
                 st.divider()
                 
-                # Super Admin is now an option
                 u_role = st.selectbox("Platform Role", ["Super Admin", "Company Admin", "Property Admin", "User"])
-                
-                # Logic to disable company selection if they are a Super Admin
                 comp_options = list(comp_dict.keys()) if comp_dict else ["No Companies Available"]
                 u_company = st.selectbox("Link to Parent Company", comp_options, disabled=(u_role == "Super Admin"))
                 
@@ -205,18 +231,13 @@ def render():
                             auth_res = supabase.auth.sign_up({"email": u_email, "password": u_pass})
                             if auth_res.user:
                                 supabase.table("user_profiles").update({
-                                    "first_name": u_first, 
-                                    "last_name": u_last, 
-                                    "global_role": u_role
+                                    "first_name": u_first, "last_name": u_last, "global_role": u_role
                                 }).eq("id", auth_res.user.id).execute()
                                 
-                                # Only link to a company if they are NOT a Super Admin
                                 if u_role != "Super Admin" and comp_dict:
                                     target_comp_id = comp_dict.get(u_company)
                                     supabase.table("user_property_access").insert({
-                                        "user_email": u_email, 
-                                        "parent_company_id": target_comp_id, 
-                                        "user_role": u_role
+                                        "user_email": u_email, "parent_company_id": target_comp_id, "user_role": u_role
                                     }).execute()
                                 
                                 st.success(f"✅ {u_role} account created for {u_email}!")
@@ -235,8 +256,6 @@ def render():
                     for _, u in df_users.iterrows():
                         with st.expander(f"👤 {u['first_name']} {u['last_name']} ({u['global_role']})"):
                             st.write(f"**Email:** {u['email']}")
-                            
-                            # Simple revoke access button (Deletes their profile data, freezing the account)
                             if st.button("🚫 Revoke System Access", key=f"revoke_{u['id']}", use_container_width=True):
                                 supabase.table("user_profiles").delete().eq("id", u['id']).execute()
                                 st.success("Access revoked. User profile deleted.")
@@ -246,53 +265,108 @@ def render():
             except Exception as e:
                 st.error("Could not load user directory.")
 
-    # --- TAB 4: SUBSCRIPTIONS ---
+    # --- TAB 4: SUBSCRIPTIONS & CATALOG ---
     with tab_subs:
-        st.markdown("### 📦 Module Management")
-        if not comp_dict:
-            st.warning("Provision a Parent Company first.")
-        else:
-            sub_col1, sub_col2 = st.columns([1, 2])
-            with sub_col1:
-                selected_comp_sub = st.selectbox("Select Company to Manage", list(comp_dict.keys()), key="sub_comp_select")
-                target_id = comp_dict[selected_comp_sub]
-                try:
-                    mods_res = supabase.table("system_modules").select("*").execute()
-                    mod_data = {m['module_name']: m for m in mods_res.data} if mods_res.data else {}
-                except:
-                    mod_data = {}
+        sub_tab_clients, sub_tab_catalog = st.tabs(["🤝 Client Subscriptions", "📚 Global Catalog"])
+        
+        try:
+            mods_res = supabase.table("system_modules").select("*").order("module_name").execute()
+            mod_data = {m['module_name']: m for m in mods_res.data} if mods_res.data else {}
+        except:
+            mod_data = {}
 
-                with st.form("add_subscription_form"):
-                    st.markdown("#### Assign Module")
-                    if mod_data:
-                        selected_mod = st.selectbox("Module to Add", list(mod_data.keys()))
-                        custom_price = st.number_input("Monthly Price ($)", value=float(mod_data[selected_mod]['base_price']), step=100.0)
-                        if st.form_submit_button("➕ Activate Subscription", use_container_width=True):
+        # 4A: CLIENT SUBSCRIPTIONS
+        with sub_tab_clients:
+            if not comp_dict:
+                st.warning("Provision a Parent Company first.")
+            else:
+                sub_col1, sub_col2 = st.columns([1, 2])
+                with sub_col1:
+                    selected_comp_sub = st.selectbox("Select Company to Manage", list(comp_dict.keys()), key="sub_comp_select")
+                    target_id = comp_dict[selected_comp_sub]
+
+                    with st.form("add_subscription_form"):
+                        st.markdown("#### Assign Module")
+                        if mod_data:
+                            selected_mod = st.selectbox("Select Module", list(mod_data.keys()))
+                            b_freq = st.selectbox("Billing Frequency", ["Monthly", "Yearly"])
+                            custom_price = st.number_input("Contract Price ($)", value=0.00, step=100.0, help="Enter the total amount billed per period (e.g., $2500 for Monthly, $24000 for Yearly).")
+                            
+                            if st.form_submit_button("➕ Activate Subscription", use_container_width=True):
+                                try:
+                                    supabase.table("company_subscriptions").insert({
+                                        "parent_company_id": target_id, 
+                                        "module_id": mod_data[selected_mod]['id'], 
+                                        "agreed_price": custom_price,
+                                        "billing_frequency": b_freq
+                                    }).execute()
+                                    st.success("Subscription Activated!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Failed (Already subscribed?): {e}")
+                        else:
+                            st.info("No modules found in catalog.")
+
+                with sub_col2:
+                    st.markdown(f"#### Active Subscriptions for {selected_comp_sub}")
+                    try:
+                        subs_res = supabase.table("company_subscriptions").select("*, system_modules(module_name)").eq("parent_company_id", target_id).eq("status", "Active").execute()
+                        if subs_res.data:
+                            df_subs = pd.DataFrame(subs_res.data)
+                            df_subs['Module'] = df_subs['system_modules'].apply(lambda x: x['module_name'])
+                            df_subs = df_subs[['Module', 'billing_frequency', 'agreed_price', 'created_at', 'id']]
+                            
+                            for _, sub in df_subs.iterrows():
+                                with st.container(border=True):
+                                    c_info, c_action = st.columns([4, 1])
+                                    with c_info:
+                                        st.markdown(f"**{sub['Module']}**")
+                                        st.caption(f"Billed {sub['billing_frequency']} at ${sub['agreed_price']:,.2f}")
+                                    with c_action:
+                                        if st.button("Cancel", key=f"canc_{sub['id']}", type="secondary", use_container_width=True):
+                                            supabase.table("company_subscriptions").delete().eq("id", sub['id']).execute()
+                                            st.rerun()
+                        else:
+                            st.info("No active subscriptions.")
+                    except Exception as e:
+                        st.error(f"Unable to load subscriptions. {e}")
+
+        # 4B: GLOBAL CATALOG
+        with sub_tab_catalog:
+            cat_col_form, cat_col_list = st.columns([1, 2])
+            
+            with cat_col_form:
+                st.markdown("#### Add New Module")
+                with st.form("create_module_form"):
+                    new_m_name = st.text_input("Module Name *")
+                    new_m_desc = st.text_area("Description")
+                    new_m_price = st.number_input("Base Monthly Price ($)", min_value=0.0, step=50.0)
+                    if st.form_submit_button("Create Module", type="primary", use_container_width=True):
+                        if new_m_name:
                             try:
-                                supabase.table("company_subscriptions").insert({"parent_company_id": target_id, "module_id": mod_data[selected_mod]['id'], "agreed_price": custom_price}).execute()
-                                st.success("Subscription Activated!")
+                                supabase.table("system_modules").insert({"module_name": new_m_name, "description": new_m_desc, "base_price": new_m_price}).execute()
+                                st.success("Module added to catalog.")
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"Failed (Already subscribed?): {e}")
-                    else:
-                        st.info("No modules found in catalog.")
-
-            with sub_col2:
-                st.markdown(f"#### Active Subscriptions for {selected_comp_sub}")
-                try:
-                    subs_res = supabase.table("company_subscriptions").select("*, system_modules(module_name)").eq("parent_company_id", target_id).eq("status", "Active").execute()
-                    if subs_res.data:
-                        df_subs = pd.DataFrame(subs_res.data)
-                        df_subs['Module'] = df_subs['system_modules'].apply(lambda x: x['module_name'])
-                        df_subs = df_subs[['Module', 'agreed_price', 'created_at']]
-                        df_subs.rename(columns={'agreed_price': 'Monthly Rate ($)', 'created_at': 'Start Date'}, inplace=True)
-                        st.dataframe(df_subs, use_container_width=True, hide_index=True)
-                        total_mrr = df_subs['Monthly Rate ($)'].sum()
-                        st.markdown(f"**Total MRR:** <span style='color: #10B981; font-size: 1.2rem; font-weight: 600;'>${total_mrr:,.2f} / month</span>", unsafe_allow_html=True)
-                    else:
-                        st.info("No active subscriptions.")
-                except:
-                    st.error("Unable to load subscriptions.")
+                                st.error(f"Creation failed: {e}")
+                        else:
+                            st.error("Module name is required.")
+            
+            with cat_col_list:
+                st.markdown("#### Platform Catalog")
+                if mod_data:
+                    for mod_name, mod in mod_data.items():
+                        with st.expander(f"📦 {mod_name} - Base: ${mod['base_price']:,.2f}/mo"):
+                            st.write(mod.get('description', 'No description provided.'))
+                            mc1, mc2 = st.columns(2)
+                            with mc1:
+                                if st.button("✏️ Edit Module", key=f"m_edit_{mod['id']}", use_container_width=True):
+                                    edit_module_modal(mod)
+                            with mc2:
+                                if st.button("🗑️ Delete Module", key=f"m_del_{mod['id']}", use_container_width=True):
+                                    delete_module_modal(mod)
+                else:
+                    st.info("Your module catalog is empty.")
 
     # --- TAB 5: BILLING & INVOICES ---
     with tab_billing:
@@ -303,27 +377,37 @@ def render():
             b_col1, b_col2 = st.columns(2)
             with b_col1:
                 with st.form("auto_invoice_form"):
-                    st.markdown("#### 📝 Generate Monthly Invoice")
+                    st.markdown("#### 📝 Generate Invoice")
                     inv_comp = st.selectbox("Select Parent Company", list(comp_dict.keys()), key="inv_select")
-                    inv_due = st.date_input("Due Date")
-                    if st.form_submit_button("Calculate & Issue Invoice", use_container_width=True):
-                        comp_id = comp_dict[inv_comp]
-                        subs_res = supabase.table("company_subscriptions").select("agreed_price").eq("parent_company_id", comp_id).eq("status", "Active").execute()
+                    inv_type = st.selectbox("Invoice Type", ["Monthly Subscriptions", "Yearly Subscriptions", "Custom Manual Entry"])
+                    
+                    calc_amount = 0.0
+                    comp_id = comp_dict[inv_comp] if comp_dict else None
+                    
+                    if inv_type != "Custom Manual Entry" and comp_id:
+                        freq_filter = "Monthly" if "Monthly" in inv_type else "Yearly"
+                        subs_res = supabase.table("company_subscriptions").select("agreed_price").eq("parent_company_id", comp_id).eq("status", "Active").eq("billing_frequency", freq_filter).execute()
                         if subs_res.data:
                             calc_amount = sum(float(s['agreed_price']) for s in subs_res.data)
-                            if calc_amount > 0:
-                                try:
-                                    supabase.table("invoices").insert({"parent_company_id": comp_id, "invoice_amount": calc_amount, "due_date": str(inv_due)}).execute()
-                                    current_owed = df_comps[df_comps['id'] == comp_id].iloc[0]['total_owed']
-                                    supabase.table("parent_companies").update({"total_owed": float(current_owed) + float(calc_amount)}).eq("id", comp_id).execute()
-                                    st.success(f"Issued invoice for ${calc_amount:,.2f}")
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"Billing Error: {e}")
-                            else:
-                                st.warning("Total subscription value is $0.00.")
+                    
+                    st.info(f"Calculated Total: **${calc_amount:,.2f}**")
+                    custom_override = st.number_input("Override/Custom Amount ($)", value=0.0, step=100.0, help="Use this if calculating manually or applying a one-time charge.")
+                    
+                    final_amount = custom_override if custom_override > 0 else calc_amount
+                    inv_due = st.date_input("Due Date")
+                    
+                    if st.form_submit_button("Issue Invoice", use_container_width=True):
+                        if final_amount > 0:
+                            try:
+                                supabase.table("invoices").insert({"parent_company_id": comp_id, "invoice_amount": final_amount, "due_date": str(inv_due)}).execute()
+                                current_owed = df_comps[df_comps['id'] == comp_id].iloc[0]['total_owed']
+                                supabase.table("parent_companies").update({"total_owed": float(current_owed) + float(final_amount)}).eq("id", comp_id).execute()
+                                st.success(f"Issued invoice for ${final_amount:,.2f}")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Billing Error: {e}")
                         else:
-                            st.error(f"{inv_comp} has no active subscriptions to bill for.")
+                            st.error("Cannot issue a $0.00 invoice.")
 
             with b_col2:
                 with st.form("log_payment_form"):
