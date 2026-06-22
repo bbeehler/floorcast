@@ -33,7 +33,7 @@ def convert_lead_modal(lead):
                     
                     new_comp_id = comp_res.data[0]['id']
                     
-                    # 2. Create the Auth User (Trigger handles profile creation)
+                    # 2. Create the Auth User
                     auth_res = supabase.auth.sign_up({"email": u_email, "password": u_pass})
                     
                     if auth_res.user:
@@ -87,9 +87,18 @@ def render():
         return
 
     st.markdown('<div class="hero-title" style="text-align: left; font-size: 2.5rem; margin-top: 0;">🛡️ Command Center</div>', unsafe_allow_html=True)
-    st.markdown('<p style="color: #6B7280; font-size: 1.1rem; margin-bottom: 2rem;">Manage incoming leads, provision parent companies, create user accounts, and track manual billing.</p>', unsafe_allow_html=True)
+    st.markdown('<p style="color: #6B7280; font-size: 1.1rem; margin-bottom: 2rem;">Manage leads, provision accounts, assign modules, and automate billing.</p>', unsafe_allow_html=True)
 
-    tab_leads, tab_companies, tab_users, tab_billing = st.tabs(["🎯 Lead Pipeline", "🏢 Parent Companies", "👥 User Provisioning", "💳 Billing & Invoices"])
+    tab_leads, tab_companies, tab_users, tab_subs, tab_billing = st.tabs(["🎯 Lead Pipeline", "🏢 Parent Companies", "👥 User Provisioning", "📦 Subscriptions", "💳 Billing & Invoices"])
+
+    # --- FETCH GLOBAL DATA ---
+    try:
+        comp_res = supabase.table("parent_companies").select("*").order("company_name").execute()
+        df_comps = pd.DataFrame(comp_res.data) if comp_res.data else pd.DataFrame()
+        comp_dict = {c['company_name']: c['id'] for _, c in df_comps.iterrows()} if not df_comps.empty else {}
+    except:
+        df_comps = pd.DataFrame()
+        comp_dict = {}
 
     # --- TAB 1: LEAD PIPELINE ---
     with tab_leads:
@@ -117,8 +126,6 @@ def render():
                                 if st.button("✔️ Mark Contacted", key=f"contact_{lead['id']}", use_container_width=True):
                                     supabase.table("leads").update({"status": "Contacted"}).eq("id", lead['id']).execute()
                                     st.rerun()
-                                
-                                # THIS IS THE NEW BUTTON LOGIC
                                 if st.button("🚀 Convert & Provision", key=f"convert_{lead['id']}", type="primary", use_container_width=True):
                                     convert_lead_modal(lead)
             else:
@@ -129,12 +136,6 @@ def render():
     # --- TAB 2: PARENT COMPANIES ---
     with tab_companies:
         col_list, col_add = st.columns([2, 1])
-        try:
-            comp_res = supabase.table("parent_companies").select("*").order("company_name").execute()
-            df_comps = pd.DataFrame(comp_res.data) if comp_res.data else pd.DataFrame()
-        except:
-            df_comps = pd.DataFrame()
-
         with col_add:
             st.markdown("### ➕ Manual Provision")
             with st.form("add_parent_company"):
@@ -160,12 +161,6 @@ def render():
     # --- TAB 3: USER PROVISIONING ---
     with tab_users:
         st.markdown("### 🤵 Concierge Account Creation")
-        try:
-            active_comps = supabase.table("parent_companies").select("id, company_name").execute()
-            comp_dict = {c['company_name']: c['id'] for c in active_comps.data} if active_comps.data else {}
-        except:
-            comp_dict = {}
-
         col_form, _ = st.columns([2, 1])
         with col_form:
             with st.form("concierge_setup_form"):
@@ -189,38 +184,138 @@ def render():
                         except Exception as e:
                             st.error(f"Provisioning Failed: {e}")
 
-    # --- TAB 4: BILLING & INVOICES ---
-    with tab_billing:
-        st.markdown("### 💳 Manual Billing Ledger")
-        if df_comps.empty:
+    # --- TAB 4: SUBSCRIPTIONS ---
+    with tab_subs:
+        st.markdown("### 📦 Module Management")
+        if not comp_dict:
             st.warning("Provision a Parent Company first.")
         else:
-            comp_options = {c['company_name']: c['id'] for _, c in df_comps.iterrows()}
+            sub_col1, sub_col2 = st.columns([1, 2])
+            
+            with sub_col1:
+                selected_comp_sub = st.selectbox("Select Company to Manage", list(comp_dict.keys()), key="sub_comp_select")
+                target_id = comp_dict[selected_comp_sub]
+                
+                # Fetch available modules
+                try:
+                    mods_res = supabase.table("system_modules").select("*").execute()
+                    mod_data = {m['module_name']: m for m in mods_res.data} if mods_res.data else {}
+                except:
+                    mod_data = {}
+
+                with st.form("add_subscription_form"):
+                    st.markdown("#### Assign Module")
+                    if mod_data:
+                        selected_mod = st.selectbox("Module to Add", list(mod_data.keys()))
+                        custom_price = st.number_input("Monthly Price ($)", value=float(mod_data[selected_mod]['base_price']), step=100.0)
+                        
+                        if st.form_submit_button("➕ Activate Subscription", use_container_width=True):
+                            try:
+                                supabase.table("company_subscriptions").insert({
+                                    "parent_company_id": target_id,
+                                    "module_id": mod_data[selected_mod]['id'],
+                                    "agreed_price": custom_price
+                                }).execute()
+                                st.success("Subscription Activated!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Failed (Does this company already have this module?): {e}")
+                    else:
+                        st.info("No modules found in catalog. Check your database setup.")
+
+            with sub_col2:
+                st.markdown(f"#### Active Subscriptions for {selected_comp_sub}")
+                try:
+                    subs_res = supabase.table("company_subscriptions").select("*, system_modules(module_name)").eq("parent_company_id", target_id).eq("status", "Active").execute()
+                    if subs_res.data:
+                        df_subs = pd.DataFrame(subs_res.data)
+                        df_subs['Module'] = df_subs['system_modules'].apply(lambda x: x['module_name'])
+                        df_subs = df_subs[['Module', 'agreed_price', 'created_at']]
+                        df_subs.rename(columns={'agreed_price': 'Monthly Rate ($)', 'created_at': 'Start Date'}, inplace=True)
+                        st.dataframe(df_subs, use_container_width=True, hide_index=True)
+                        
+                        total_mrr = df_subs['Monthly Rate ($)'].sum()
+                        st.markdown(f"**Total MRR:** <span style='color: #10B981; font-size: 1.2rem; font-weight: 600;'>${total_mrr:,.2f} / month</span>", unsafe_allow_html=True)
+                    else:
+                        st.info("No active subscriptions. Assign a module on the left.")
+                except:
+                    st.error("Unable to load subscriptions.")
+
+    # --- TAB 5: BILLING & INVOICES ---
+    with tab_billing:
+        st.markdown("### 💳 Automated Billing Ledger")
+        if not comp_dict:
+            st.warning("Provision a Parent Company first.")
+        else:
             b_col1, b_col2 = st.columns(2)
             
+            # --- AUTO INVOICE ---
             with b_col1:
-                with st.form("create_invoice_form"):
-                    st.markdown("#### 📝 Issue New Invoice")
-                    inv_comp = st.selectbox("Parent Company", list(comp_options.keys()))
-                    inv_amount = st.number_input("Invoice Amount ($)", min_value=0.0, step=100.0)
+                with st.form("auto_invoice_form"):
+                    st.markdown("#### 📝 Generate Monthly Invoice")
+                    inv_comp = st.selectbox("Select Parent Company", list(comp_dict.keys()), key="inv_select")
                     inv_due = st.date_input("Due Date")
-                    if st.form_submit_button("Issue Invoice", use_container_width=True):
-                        comp_id = comp_options[inv_comp]
-                        supabase.table("invoices").insert({"parent_company_id": comp_id, "invoice_amount": inv_amount, "due_date": str(inv_due)}).execute()
-                        current_owed = df_comps[df_comps['id'] == comp_id].iloc[0]['total_owed']
-                        supabase.table("parent_companies").update({"total_owed": float(current_owed) + float(inv_amount)}).eq("id", comp_id).execute()
-                        st.rerun()
+                    
+                    if st.form_submit_button("Calculate & Issue Invoice", use_container_width=True):
+                        comp_id = comp_dict[inv_comp]
+                        
+                        # Calculate MRR based on active subscriptions
+                        subs_res = supabase.table("company_subscriptions").select("agreed_price").eq("parent_company_id", comp_id).eq("status", "Active").execute()
+                        if subs_res.data:
+                            calc_amount = sum(float(s['agreed_price']) for s in subs_res.data)
+                            if calc_amount > 0:
+                                try:
+                                    supabase.table("invoices").insert({
+                                        "parent_company_id": comp_id,
+                                        "invoice_amount": calc_amount,
+                                        "due_date": str(inv_due)
+                                    }).execute()
+                                    
+                                    current_owed = df_comps[df_comps['id'] == comp_id].iloc[0]['total_owed']
+                                    supabase.table("parent_companies").update({"total_owed": float(current_owed) + float(calc_amount)}).eq("id", comp_id).execute()
+                                    
+                                    st.success(f"Issued invoice for ${calc_amount:,.2f}")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Billing Error: {e}")
+                            else:
+                                st.warning("Total subscription value is $0.00.")
+                        else:
+                            st.error(f"{inv_comp} has no active subscriptions to bill for.")
 
+            # --- LOG PAYMENT ---
             with b_col2:
                 with st.form("log_payment_form"):
                     st.markdown("#### 💰 Log Received Payment")
-                    pay_comp = st.selectbox("Paying Company", list(comp_options.keys()))
+                    pay_comp = st.selectbox("Paying Company", list(comp_dict.keys()), key="pay_select")
                     pay_amount = st.number_input("Amount Received ($)", min_value=0.0, step=100.0)
                     pay_method = st.selectbox("Payment Method", ["Wire Transfer", "ACH", "Check", "Credit Card"])
                     if st.form_submit_button("Process Payment", use_container_width=True):
-                        comp_id = comp_options[pay_comp]
-                        supabase.table("payments").insert({"parent_company_id": comp_id, "amount_paid": pay_amount, "payment_method": pay_method}).execute()
-                        current_owed = df_comps[df_comps['id'] == comp_id].iloc[0]['total_owed']
-                        new_total = max(0.0, float(current_owed) - float(pay_amount))
-                        supabase.table("parent_companies").update({"total_owed": new_total}).eq("id", comp_id).execute()
-                        st.rerun()
+                        if pay_amount > 0:
+                            comp_id = comp_dict[pay_comp]
+                            try:
+                                supabase.table("payments").insert({"parent_company_id": comp_id, "amount_paid": pay_amount, "payment_method": pay_method}).execute()
+                                current_owed = df_comps[df_comps['id'] == comp_id].iloc[0]['total_owed']
+                                new_total = max(0.0, float(current_owed) - float(pay_amount))
+                                supabase.table("parent_companies").update({"total_owed": new_total}).eq("id", comp_id).execute()
+                                st.success("Payment logged & balance reduced.")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Payment Error: {e}")
+                        else:
+                            st.error("Amount must be greater than zero.")
+            
+            # --- OUTSTANDING INVOICES ---
+            st.divider()
+            st.markdown("#### 🧾 Outstanding Invoices")
+            try:
+                inv_res = supabase.table("invoices").select("*, parent_companies(company_name)").eq("status", "Pending").order("due_date").execute()
+                if inv_res.data:
+                    df_inv = pd.DataFrame(inv_res.data)
+                    df_inv['Company'] = df_inv['parent_companies'].apply(lambda x: x['company_name'])
+                    df_inv = df_inv[['Company', 'invoice_amount', 'due_date', 'status']]
+                    st.dataframe(df_inv, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No pending invoices. All accounts are settled.")
+            except:
+                st.info("Unable to fetch invoices.")
