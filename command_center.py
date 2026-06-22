@@ -2,6 +2,69 @@ import streamlit as st
 import pandas as pd
 from database import supabase
 
+# =================================================================
+# CONVERSION WIZARD MODAL
+# =================================================================
+@st.dialog("🚀 Convert Lead & Provision Account")
+def convert_lead_modal(lead):
+    st.markdown(f"Automated onboarding for **{lead['company_name']}**")
+    
+    with st.form("conversion_form"):
+        st.markdown("#### 1. Corporate Account")
+        c_name = st.text_input("Parent Company Name", value=lead['company_name'])
+        c_email = st.text_input("Billing Email", value=lead['email'])
+        
+        st.divider()
+        
+        st.markdown("#### 2. Master Admin Login")
+        u_first = st.text_input("First Name", value=lead['first_name'])
+        u_last = st.text_input("Last Name", value=lead['last_name'])
+        u_email = st.text_input("Login Email", value=lead['email'])
+        u_pass = st.text_input("Temporary Password *", type="password", help="The GM will use this to log in the first time.")
+        
+        if st.form_submit_button("Create Company & Provision Admin", type="primary", use_container_width=True):
+            if u_pass:
+                try:
+                    # 1. Create the Parent Company
+                    comp_res = supabase.table("parent_companies").insert({
+                        "company_name": c_name, 
+                        "billing_email": c_email
+                    }).execute()
+                    
+                    new_comp_id = comp_res.data[0]['id']
+                    
+                    # 2. Create the Auth User (Trigger handles profile creation)
+                    auth_res = supabase.auth.sign_up({"email": u_email, "password": u_pass})
+                    
+                    if auth_res.user:
+                        # 3. Update the Profile with real names and 'Company Admin' role
+                        supabase.table("user_profiles").update({
+                            "first_name": u_first,
+                            "last_name": u_last,
+                            "global_role": "Company Admin"
+                        }).eq("id", auth_res.user.id).execute()
+                        
+                        # 4. Link the user to the new Parent Company
+                        supabase.table("user_property_access").insert({
+                            "user_email": u_email,
+                            "parent_company_id": new_comp_id,
+                            "user_role": "Company Admin"
+                        }).execute()
+                        
+                        # 5. Mark the Lead as Converted
+                        supabase.table("leads").update({"status": "Converted"}).eq("id", lead['id']).execute()
+                        
+                        st.success("✅ Account fully provisioned!")
+                        st.rerun()
+                except Exception as e:
+                    st.error(f"Conversion Failed: {e}")
+            else:
+                st.error("A temporary password is required to create the account.")
+
+
+# =================================================================
+# MAIN COMMAND CENTER RENDER
+# =================================================================
 def render():
     profile = st.session_state.user_profile
     global_role = profile.get('global_role', 'User')
@@ -54,14 +117,10 @@ def render():
                                 if st.button("✔️ Mark Contacted", key=f"contact_{lead['id']}", use_container_width=True):
                                     supabase.table("leads").update({"status": "Contacted"}).eq("id", lead['id']).execute()
                                     st.rerun()
-                                if st.button("🚀 Convert to Account", key=f"convert_{lead['id']}", type="primary", use_container_width=True):
-                                    try:
-                                        supabase.table("parent_companies").insert({"company_name": lead['company_name'], "billing_email": lead['email']}).execute()
-                                        supabase.table("leads").update({"status": "Converted"}).eq("id", lead['id']).execute()
-                                        st.success(f"Created Parent Company.")
-                                        st.rerun()
-                                    except Exception as e:
-                                        st.error(f"Error: {e}")
+                                
+                                # THIS IS THE NEW BUTTON LOGIC
+                                if st.button("🚀 Convert & Provision", key=f"convert_{lead['id']}", type="primary", use_container_width=True):
+                                    convert_lead_modal(lead)
             else:
                 st.info("The lead pipeline is currently empty.")
         except Exception as e:
