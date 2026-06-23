@@ -264,4 +264,7 @@ def render():
                 with upsell_cols[i % 3]:
                     st.markdown(f"""
                     <div style='background-color: #F3F4F6; padding: 1.5rem; border-radius: 8px; border: 1px dashed #D1D5DB;'>
-                        <h5 style='margin-top:
+                        <h5 style='margin-top: 0;'>🔒 {mod_name}</h5>
+                        <p style='color: #6B7280; font-size: 0.9rem;'>{all_modules[mod_name]['description']}</p>
+                    </div>
+                    """, unsafe_allow_html=True)
