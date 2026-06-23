@@ -46,12 +46,12 @@ def render():
             total_coin_in, total_table_drop, total_marketing = 0.0, 0.0, 0.0
             has_data = False
             df_perf = pd.DataFrame()
-    except:
+    except Exception:
         total_coin_in, total_table_drop, total_marketing = 0.0, 0.0, 0.0
         has_data = False
         df_perf = pd.DataFrame()
 
-    # SMART UPSERT FUNCTION: Updates a row if it exists, creates it if it doesn't.
+    # SMART UPSERT FUNCTION
     def save_daily_log(entry_date, payload):
         try:
             existing = supabase.table("property_performance").select("id").eq("parent_company_id", comp_id).eq("record_date", str(entry_date)).execute()
@@ -65,7 +65,7 @@ def render():
             time.sleep(1.5)
             st.rerun()
         except Exception as e:
-            st.error(f"Save failed. Error: {e}")
+            st.error(f"Save failed. Ensure database columns exist. Error: {e}")
 
     # ==========================================
     # 3. TOP NAVIGATION BAR
@@ -89,10 +89,14 @@ def render():
     # ==========================================
     tab_titles = ["📊 Master Overview"]
     
-    if "Core AI & Marketing" in active_modules: tab_titles.append("🧠 Core AI Model")
-    if "Hotel Premium" in active_modules: tab_titles.append("🏨 Hotel Engine")
-    if "F&B Premium" in active_modules: tab_titles.append("🍔 F&B Engine")
-    if "Entertainment Premium" in active_modules: tab_titles.append("🎫 Entertainment")
+    if "Core AI & Marketing" in active_modules: 
+        tab_titles.append("🧠 Core AI Model")
+    if "Hotel Premium" in active_modules: 
+        tab_titles.append("🏨 Hotel Engine")
+    if "F&B Premium" in active_modules: 
+        tab_titles.append("🍔 F&B Engine")
+    if "Entertainment Premium" in active_modules: 
+        tab_titles.append("🎫 Entertainment")
     
     tab_titles.append("⚙️ Settings")
 
@@ -106,24 +110,31 @@ def render():
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Current Gross Coin-In", f"${total_coin_in:,.0f}")
         
-        if "Hotel Premium" in active_modules: c2.metric("Forecasted ADR", "$0.00", "Awaiting Pace Data")
-        else: c2.metric("Forecasted ADR", "🔒 Locked", "Requires Hotel Module")
+        if "Hotel Premium" in active_modules: 
+            c2.metric("Forecasted ADR", "$0.00", "Awaiting Pace Data")
+        else: 
+            c2.metric("Forecasted ADR", "🔒 Locked", "Requires Hotel Module")
             
-        if "F&B Premium" in active_modules: c3.metric("F&B Covers", "0", "Awaiting POS Data")
-        else: c3.metric("F&B Covers", "🔒 Locked", "Requires F&B Module")
+        if "F&B Premium" in active_modules: 
+            c3.metric("F&B Covers", "0", "Awaiting POS Data")
+        else: 
+            c3.metric("F&B Covers", "🔒 Locked", "Requires F&B Module")
             
         c4.metric("Attributed Media Spend", f"${total_marketing:,.0f}")
 
         st.write("\n")
         
-        # We leave the Database View and Bulk CSV Upload on the master tab for the GM
         with st.expander("📂 Master Ledger Database & Bulk Upload"):
             t_data, t_csv = st.tabs(["📋 View Raw Database", "📥 Bulk CSV Upload"])
+            
             with t_data:
-                if has_data: st.dataframe(df_perf, use_container_width=True, hide_index=True)
-                else: st.info("No ledger data found.")
+                if has_data: 
+                    st.dataframe(df_perf, use_container_width=True, hide_index=True)
+                else: 
+                    st.info("No ledger data found.")
+                    
             with t_csv:
-                st.caption("Accepted columns: `date`, `coin_in`, `table_drop`, `marketing_spend`, `rooms_sold`, `adr`, `fb_covers`, `fb_revenue`, `tickets_sold`, `ent_revenue`")
+                st.caption("Accepted columns: `date`, `coin_in`, `table_drop`, `marketing_spend`, `actual_traffic`, `new_members`, `attendance`, `ad_clicks`, `ad_impressions`, `active_promo`, `experiment_tag`, `rain_mm`, `snow_cm`, `rooms_sold`, `adr`, `fb_covers`, `fb_revenue`, `tickets_sold`, `ent_revenue`")
                 with st.form("bulk_upload_form"):
                     dash_file = st.file_uploader("Drop Multi-Department CSV Here", type=["csv"], label_visibility="collapsed")
                     if st.form_submit_button("Process Bulk Data", use_container_width=True, type="primary"):
@@ -131,15 +142,25 @@ def render():
                             try:
                                 df_new = pd.read_csv(dash_file)
                                 df_new.columns = df_new.columns.str.strip().str.lower().str.replace(' ', '_')
+                                
                                 for col in df_new.columns:
-                                    if col != 'date': df_new[col] = df_new[col].replace('[\$,]', '', regex=True).astype(float)
+                                    if col not in ['date', 'active_promo', 'experiment_tag']: 
+                                        df_new[col] = df_new[col].replace('[\$,]', '', regex=True).astype(float)
+                                        
                                 records = []
                                 for _, row in df_new.iterrows():
                                     if 'date' in df_new.columns and pd.notna(row['date']):
                                         rec = {"parent_company_id": comp_id, "record_date": str(row['date'])}
-                                        for c in ['coin_in', 'table_drop', 'marketing_spend', 'rooms_sold', 'adr', 'fb_covers', 'fb_revenue', 'tickets_sold', 'ent_revenue']:
-                                            if c in df_new.columns: rec[c] = row[c]
+                                        target_cols = [
+                                            'coin_in', 'table_drop', 'marketing_spend', 'actual_traffic', 'new_members', 
+                                            'attendance', 'ad_clicks', 'ad_impressions', 'active_promo', 'experiment_tag', 
+                                            'rain_mm', 'snow_cm', 'rooms_sold', 'adr', 'fb_covers', 'fb_revenue', 'tickets_sold', 'ent_revenue'
+                                        ]
+                                        for c in target_cols:
+                                            if c in df_new.columns: 
+                                                rec[c] = row[c]
                                         records.append(rec)
+                                        
                                 if records:
                                     supabase.table("property_performance").upsert(records).execute()
                                     st.success("Master Ledger Updated!")
@@ -154,16 +175,48 @@ def render():
         with tabs[current_tab_index]:
             st.markdown("### 🧠 O2O Attribution & Adstock Engine")
             
-            # MODULE-SPECIFIC DATA ENTRY
             with st.expander("✍️ Log Daily Casino & Marketing Ledger", expanded=not has_data):
                 with st.form("casino_entry_form"):
-                    entry_date = st.date_input("Reporting Date", value=date.today() - timedelta(days=1), key="d_cas")
-                    cc1, cc2, cc3 = st.columns(3)
-                    m_coin = cc1.number_input("Coin-In ($)", min_value=0.0, step=1000.0)
-                    m_table = cc2.number_input("Table Drop ($)", min_value=0.0, step=1000.0)
-                    m_spend = cc3.number_input("Marketing Spend ($)", min_value=0.0, step=100.0)
-                    if st.form_submit_button("Save Casino Data", type="primary"):
-                        save_daily_log(entry_date, {"coin_in": m_coin, "table_drop": m_table, "marketing_spend": m_spend})
+                    entry_date = st.date_input("Audit Date", value=date.today() - timedelta(days=1), key="d_cas")
+                    
+                    st.markdown("##### Financials & Floor Traffic")
+                    f1, f2, f3, f4 = st.columns(4)
+                    m_coin = f1.number_input("Coin-In ($)", min_value=0.0, step=1000.0)
+                    m_table = f2.number_input("Table Drop ($)", min_value=0.0, step=1000.0)
+                    m_traffic = f3.number_input("Actual Traffic", min_value=0, step=1)
+                    m_members = f4.number_input("New Members", min_value=0, step=1)
+                    
+                    st.markdown("##### Digital Signal & Marketing")
+                    d1, d2, d3, d4 = st.columns(4)
+                    m_spend = d1.number_input("Marketing Spend ($)", min_value=0.0, step=100.0)
+                    m_clicks = d2.number_input("Ad Clicks", min_value=0, step=1)
+                    m_imps = d3.number_input("Social Impressions", min_value=0, step=1)
+                    m_event = d4.number_input("Event Attendance", min_value=0, step=1)
+                    
+                    st.markdown("##### Environmental Context & Experiments")
+                    c1, c2, c3, c4 = st.columns(4)
+                    m_promo = c1.text_input("Active Promotion", placeholder="e.g. Unity Bonus")
+                    m_tag = c2.text_input("Experiment Tag", placeholder="e.g. Control")
+                    m_rain = c3.number_input("Rain (mm)", min_value=0.0, step=1.0)
+                    m_snow = c4.number_input("Snow (cm)", min_value=0.0, step=1.0)
+                    
+                    st.write("\n")
+                    if st.form_submit_button("🚀 Commit to Forensic Vault", type="primary", use_container_width=True):
+                        payload = {
+                            "coin_in": m_coin,
+                            "table_drop": m_table,
+                            "marketing_spend": m_spend,
+                            "actual_traffic": m_traffic,
+                            "new_members": m_members,
+                            "attendance": m_event,
+                            "ad_clicks": m_clicks,
+                            "ad_impressions": m_imps,
+                            "active_promo": m_promo.strip() if m_promo else None,
+                            "experiment_tag": m_tag.strip() if m_tag else None,
+                            "rain_mm": m_rain,
+                            "snow_cm": m_snow
+                        }
+                        save_daily_log(entry_date, payload)
 
             st.divider()
             
@@ -171,6 +224,7 @@ def render():
             bc1.metric("Gross Coin-In", f"${total_coin_in:,.0f}")
             bc2.metric("Table Drop", f"${total_table_drop:,.0f}")
             bc3.metric("Attributed Media Spend", f"${total_marketing:,.0f}")
+            
             if total_marketing > 0:
                 roas = (total_coin_in + total_table_drop) / total_marketing
                 bc4.metric("O2O Blended ROAS", f"{roas:.1f}x")
@@ -188,15 +242,26 @@ def render():
                     decay_rate = st.slider("Adstock Decay Rate (λ)", 0.1, 0.9, 0.5, 0.1)
                     spend_spike = st.number_input("Inject Spend Spike ($)", 0, 50000, 15000, 1000)
                     spike_day = st.slider("Day of Launch", 1, 30, 5)
+                    
                 with col_chart:
                     days = np.arange(1, 31)
                     daily_spend = np.zeros(30)
                     daily_spend[spike_day-1] = spend_spike
+                    
                     adstock = np.zeros(30)
                     for i in range(30):
-                        adstock[i] = daily_spend[i] if i == 0 else daily_spend[i] + (adstock[i-1] * decay_rate)
+                        if i == 0:
+                            adstock[i] = daily_spend[i]
+                        else:
+                            adstock[i] = daily_spend[i] + (adstock[i-1] * decay_rate)
+                            
                     correlated_traffic = np.random.normal(5000, 200, 30) + (adstock * 0.15) 
-                    df_mmm = pd.DataFrame({"Day": days, "Effective Adstock": adstock, "Simulated Traffic": correlated_traffic}).set_index("Day")
+                    df_mmm = pd.DataFrame({
+                        "Day": days, 
+                        "Effective Adstock": adstock, 
+                        "Simulated Traffic": correlated_traffic
+                    }).set_index("Day")
+                    
                     st.line_chart(df_mmm[["Effective Adstock", "Simulated Traffic"]], height=350, use_container_width=True)
 
         current_tab_index += 1
