@@ -102,7 +102,7 @@ def render():
 
     tabs = st.tabs(tab_titles)
 
-    # --- TAB 1: MASTER OVERVIEW & BULK UPLOAD ---
+    # --- TAB 1: MASTER OVERVIEW (Cleaned Up) ---
     with tabs[0]:
         st.markdown("### Floor Performance Snapshot")
         st.caption("Aggregated predictive demand across all active departments.")
@@ -121,53 +121,6 @@ def render():
             c3.metric("F&B Covers", "🔒 Locked", "Requires F&B Module")
             
         c4.metric("Attributed Media Spend", f"${total_marketing:,.0f}")
-
-        st.write("\n")
-        
-        with st.expander("📂 Master Ledger Database & Bulk Upload"):
-            t_data, t_csv = st.tabs(["📋 View Raw Database", "📥 Bulk CSV Upload"])
-            
-            with t_data:
-                if has_data: 
-                    st.dataframe(df_perf, use_container_width=True, hide_index=True)
-                else: 
-                    st.info("No ledger data found.")
-                    
-            with t_csv:
-                st.caption("Accepted columns: `date`, `coin_in`, `table_drop`, `marketing_spend`, `actual_traffic`, `new_members`, `attendance`, `ad_clicks`, `ad_impressions`, `active_promo`, `experiment_tag`, `rain_mm`, `snow_cm`, `rooms_sold`, `adr`, `fb_covers`, `fb_revenue`, `tickets_sold`, `ent_revenue`")
-                with st.form("bulk_upload_form"):
-                    dash_file = st.file_uploader("Drop Multi-Department CSV Here", type=["csv"], label_visibility="collapsed")
-                    if st.form_submit_button("Process Bulk Data", use_container_width=True, type="primary"):
-                        if dash_file:
-                            try:
-                                df_new = pd.read_csv(dash_file)
-                                df_new.columns = df_new.columns.str.strip().str.lower().str.replace(' ', '_')
-                                
-                                for col in df_new.columns:
-                                    if col not in ['date', 'active_promo', 'experiment_tag']: 
-                                        df_new[col] = df_new[col].replace('[\$,]', '', regex=True).astype(float)
-                                        
-                                records = []
-                                for _, row in df_new.iterrows():
-                                    if 'date' in df_new.columns and pd.notna(row['date']):
-                                        rec = {"parent_company_id": comp_id, "record_date": str(row['date'])}
-                                        target_cols = [
-                                            'coin_in', 'table_drop', 'marketing_spend', 'actual_traffic', 'new_members', 
-                                            'attendance', 'ad_clicks', 'ad_impressions', 'active_promo', 'experiment_tag', 
-                                            'rain_mm', 'snow_cm', 'rooms_sold', 'adr', 'fb_covers', 'fb_revenue', 'tickets_sold', 'ent_revenue'
-                                        ]
-                                        for c in target_cols:
-                                            if c in df_new.columns: 
-                                                rec[c] = row[c]
-                                        records.append(rec)
-                                        
-                                if records:
-                                    supabase.table("property_performance").upsert(records).execute()
-                                    st.success("Master Ledger Updated!")
-                                    time.sleep(1.5)
-                                    st.rerun()
-                            except Exception as e:
-                                st.error(f"Upload failed: {e}")
 
     # --- TAB 2: CORE AI & MARKETING ---
     current_tab_index = 1
@@ -203,18 +156,12 @@ def render():
                     st.write("\n")
                     if st.form_submit_button("🚀 Commit to Forensic Vault", type="primary", use_container_width=True):
                         payload = {
-                            "coin_in": m_coin,
-                            "table_drop": m_table,
-                            "marketing_spend": m_spend,
-                            "actual_traffic": m_traffic,
-                            "new_members": m_members,
-                            "attendance": m_event,
-                            "ad_clicks": m_clicks,
-                            "ad_impressions": m_imps,
+                            "coin_in": m_coin, "table_drop": m_table, "marketing_spend": m_spend,
+                            "actual_traffic": m_traffic, "new_members": m_members, "attendance": m_event,
+                            "ad_clicks": m_clicks, "ad_impressions": m_imps,
                             "active_promo": m_promo.strip() if m_promo else None,
                             "experiment_tag": m_tag.strip() if m_tag else None,
-                            "rain_mm": m_rain,
-                            "snow_cm": m_snow
+                            "rain_mm": m_rain, "snow_cm": m_snow
                         }
                         save_daily_log(entry_date, payload)
 
@@ -320,6 +267,53 @@ def render():
     # --- TAB 6: SETTINGS ---
     with tabs[-1]:
         st.markdown("### Property Settings")
+        
+        # Moved Database & Uploader to Settings
+        with st.expander("📂 Master Ledger Database & Bulk Upload", expanded=not has_data):
+            t_data, t_csv = st.tabs(["📋 View Raw Database", "📥 Bulk CSV Upload"])
+            
+            with t_data:
+                if has_data: 
+                    st.dataframe(df_perf, use_container_width=True, hide_index=True)
+                else: 
+                    st.info("No ledger data found.")
+                    
+            with t_csv:
+                st.caption("Accepted columns: `date`, `coin_in`, `table_drop`, `marketing_spend`, `actual_traffic`, `new_members`, `attendance`, `ad_clicks`, `ad_impressions`, `active_promo`, `experiment_tag`, `rain_mm`, `snow_cm`, `rooms_sold`, `adr`, `fb_covers`, `fb_revenue`, `tickets_sold`, `ent_revenue`")
+                with st.form("bulk_upload_form"):
+                    dash_file = st.file_uploader("Drop Multi-Department CSV Here", type=["csv"], label_visibility="collapsed")
+                    if st.form_submit_button("Process Bulk Data", use_container_width=True, type="primary"):
+                        if dash_file:
+                            try:
+                                df_new = pd.read_csv(dash_file)
+                                df_new.columns = df_new.columns.str.strip().str.lower().str.replace(' ', '_')
+                                
+                                for col in df_new.columns:
+                                    if col not in ['date', 'active_promo', 'experiment_tag']: 
+                                        df_new[col] = df_new[col].replace('[\$,]', '', regex=True).astype(float)
+                                        
+                                records = []
+                                for _, row in df_new.iterrows():
+                                    if 'date' in df_new.columns and pd.notna(row['date']):
+                                        rec = {"parent_company_id": comp_id, "record_date": str(row['date'])}
+                                        target_cols = [
+                                            'coin_in', 'table_drop', 'marketing_spend', 'actual_traffic', 'new_members', 
+                                            'attendance', 'ad_clicks', 'ad_impressions', 'active_promo', 'experiment_tag', 
+                                            'rain_mm', 'snow_cm', 'rooms_sold', 'adr', 'fb_covers', 'fb_revenue', 'tickets_sold', 'ent_revenue'
+                                        ]
+                                        for c in target_cols:
+                                            if c in df_new.columns: 
+                                                rec[c] = row[c]
+                                        records.append(rec)
+                                        
+                                if records:
+                                    supabase.table("property_performance").upsert(records).execute()
+                                    st.success("Master Ledger Updated!")
+                                    time.sleep(1.5)
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"Upload failed: {e}")
+
         missing_modules = [m for m in all_modules.keys() if m not in active_modules]
         if missing_modules:
             st.divider()
