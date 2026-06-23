@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import time
 from database import supabase
+from datetime import date, timedelta
 
 def render():
     profile = st.session_state.user_profile
@@ -30,11 +32,11 @@ def render():
         return
 
     # ==========================================
-    # 2. GLOBAL DATA FETCH
+    # 2. GLOBAL DATA FETCH 
     # ==========================================
-    # We fetch the data up here so ALL tabs can use it
     try:
-        perf_res = supabase.table("property_performance").select("coin_in, table_drop, marketing_spend").eq("parent_company_id", comp_id).execute()
+        # Fetching all potential columns. If they don't exist yet, it will fail gracefully to the except block.
+        perf_res = supabase.table("property_performance").select("*").eq("parent_company_id", comp_id).order("record_date", desc=True).execute()
         
         if perf_res.data:
             df_perf = pd.DataFrame(perf_res.data)
@@ -43,15 +45,13 @@ def render():
             total_marketing = df_perf['marketing_spend'].sum()
             has_data = True
         else:
-            total_coin_in = 0.0
-            total_table_drop = 0.0
-            total_marketing = 0.0
+            total_coin_in, total_table_drop, total_marketing = 0.0, 0.0, 0.0
             has_data = False
+            df_perf = pd.DataFrame()
     except:
-        total_coin_in = 0.0
-        total_table_drop = 0.0
-        total_marketing = 0.0
+        total_coin_in, total_table_drop, total_marketing = 0.0, 0.0, 0.0
         has_data = False
+        df_perf = pd.DataFrame()
 
     # ==========================================
     # 3. TOP NAVIGATION BAR
@@ -84,23 +84,135 @@ def render():
 
     tabs = st.tabs(tab_titles)
 
-    # --- TAB 1: MASTER OVERVIEW ---
+    # --- TAB 1: MASTER OVERVIEW & INGESTION ---
     with tabs[0]:
         st.markdown("### Floor Performance Snapshot")
-        st.caption("Aggregated predictive demand across all departments.")
+        st.caption("Aggregated predictive demand across all active departments.")
         
         c1, c2, c3, c4 = st.columns(4)
-        
-        # Cleaned up placeholders - now shows 0 if no data
         c1.metric("Current Gross Coin-In", f"${total_coin_in:,.0f}")
         
-        if "Hotel Premium" in active_modules: c2.metric("Forecasted ADR", "$0.00", "Awaiting Hotel Data")
+        if "Hotel Premium" in active_modules: c2.metric("Forecasted ADR", "$0.00", "Awaiting Pace Data")
         else: c2.metric("Forecasted ADR", "🔒 Locked", "Requires Hotel Module")
             
         if "F&B Premium" in active_modules: c3.metric("F&B Covers", "0", "Awaiting POS Data")
         else: c3.metric("F&B Covers", "🔒 Locked", "Requires F&B Module")
             
         c4.metric("Attributed Media Spend", f"${total_marketing:,.0f}")
+
+        st.write("\n")
+
+        # --- THE UNIVERSAL DATA INGESTION ENGINE ---
+        with st.expander("📂 Property Ledger & Daily Data Ingestion", expanded=not has_data):
+            tab_manual, tab_csv, tab_ledger = st.tabs(["✍️ Manual Daily Entry", "📥 Bulk CSV Upload", "📋 View Database"])
+            
+            # 1. MANUAL ENTRY FORM
+            with tab_manual:
+                st.markdown("##### Log Yesterday's Operations")
+                with st.form("manual_entry_form"):
+                    entry_date = st.date_input("Reporting Date", value=date.today() - timedelta(days=1))
+                    
+                    st.markdown("**🎰 Casino & Marketing** (Core)")
+                    mc1, mc2, mc3 = st.columns(3)
+                    m_coin = mc1.number_input("Coin-In ($)", min_value=0.0, step=1000.0)
+                    m_table = mc2.number_input("Table Drop ($)", min_value=0.0, step=1000.0)
+                    m_spend = mc3.number_input("Marketing Spend ($)", min_value=0.0, step=100.0)
+
+                    # Dynamic fields based on subscriptions
+                    m_rooms, m_adr, m_covers, m_fbrev, m_tix, m_entrev = 0, 0.0, 0, 0.0, 0, 0.0
+                    
+                    if "Hotel Premium" in active_modules:
+                        st.divider()
+                        st.markdown("**🏨 Hotel Operations**")
+                        hc1, hc2 = st.columns(2)
+                        m_rooms = hc1.number_input("Rooms Sold", min_value=0, step=1)
+                        m_adr = hc2.number_input("Average Daily Rate (ADR $)", min_value=0.0, step=10.0)
+                        
+                    if "F&B Premium" in active_modules:
+                        st.divider()
+                        st.markdown("**🍔 Food & Beverage**")
+                        fc1, fc2 = st.columns(2)
+                        m_covers = fc1.number_input("Total Covers", min_value=0, step=1)
+                        m_fbrev = fc2.number_input("Gross F&B Revenue ($)", min_value=0.0, step=500.0)
+
+                    if "Entertainment Premium" in active_modules:
+                        st.divider()
+                        st.markdown("**🎫 Entertainment & Shows**")
+                        ec1, ec2 = st.columns(2)
+                        m_tix = ec1.number_input("Tickets Scanned", min_value=0, step=1)
+                        m_entrev = ec2.number_input("Box Office Revenue ($)", min_value=0.0, step=500.0)
+
+                    st.write("\n")
+                    if st.form_submit_button("Save Daily Log to Ledger", type="primary", use_container_width=True):
+                        try:
+                            # Build the dynamic payload
+                            payload = {
+                                "parent_company_id": comp_id,
+                                "record_date": str(entry_date),
+                                "coin_in": m_coin,
+                                "table_drop": m_table,
+                                "marketing_spend": m_spend
+                            }
+                            if "Hotel Premium" in active_modules:
+                                payload["rooms_sold"] = m_rooms
+                                payload["adr"] = m_adr
+                            if "F&B Premium" in active_modules:
+                                payload["fb_covers"] = m_covers
+                                payload["fb_revenue"] = m_fbrev
+                            if "Entertainment Premium" in active_modules:
+                                payload["tickets_sold"] = m_tix
+                                payload["ent_revenue"] = m_entrev
+
+                            supabase.table("property_performance").upsert([payload]).execute()
+                            st.success(f"Data for {entry_date} securely logged.")
+                            time.sleep(1.5)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Save failed. Ensure database columns exist. Error: {e}")
+
+            # 2. BULK CSV UPLOAD
+            with tab_csv:
+                st.markdown("##### 📥 Upload Historical Reports")
+                st.caption("Accepted columns: `date`, `coin_in`, `table_drop`, `marketing_spend`, `rooms_sold`, `adr`, `fb_covers`, `fb_revenue`, `tickets_sold`, `ent_revenue`")
+                with st.form("ledger_upload_form"):
+                    dash_file = st.file_uploader("Drop CSV Here", type=["csv"], label_visibility="collapsed")
+                    if st.form_submit_button("Process Bulk Data", use_container_width=True):
+                        if dash_file:
+                            try:
+                                df_new = pd.read_csv(dash_file)
+                                df_new.columns = df_new.columns.str.strip().str.lower().str.replace(' ', '_')
+                                
+                                # Clean currency formats
+                                for col in df_new.columns:
+                                    if col != 'date':
+                                        df_new[col] = df_new[col].replace('[\$,]', '', regex=True).astype(float)
+
+                                records = []
+                                for _, row in df_new.iterrows():
+                                    if 'date' in df_new.columns and pd.notna(row['date']):
+                                        # Map columns dynamically if they exist in the CSV
+                                        rec = {"parent_company_id": comp_id, "record_date": str(row['date'])}
+                                        for c in ['coin_in', 'table_drop', 'marketing_spend', 'rooms_sold', 'adr', 'fb_covers', 'fb_revenue', 'tickets_sold', 'ent_revenue']:
+                                            if c in df_new.columns:
+                                                rec[c] = row[c]
+                                        records.append(rec)
+
+                                if records:
+                                    supabase.table("property_performance").upsert(records).execute()
+                                    st.success("Ledger Updated Successfully!")
+                                    time.sleep(1.5)
+                                    st.rerun()
+                            except Exception as e:
+                                st.error(f"Error processing CSV: {e}")
+                        else:
+                            st.error("Please attach a CSV file first.")
+
+            # 3. VIEW DATABASE
+            with tab_ledger:
+                if has_data:
+                    st.dataframe(df_perf, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No ledger data found.")
 
     # --- TAB 2: THE BRAINS (CORE AI & MARKETING) ---
     current_tab_index = 1
@@ -109,7 +221,7 @@ def render():
             st.markdown("### 🧠 O2O Attribution & Adstock Engine")
             st.markdown("Calculate closed-loop ROI by correlating digital media decay with physical floor performance.")
             
-            # 1. Operational Baselines (Now 100% Honest)
+            # 1. Operational Baselines
             st.markdown("#### Month-to-Date Reconciled Ledgers")
             bc1, bc2, bc3, bc4 = st.columns(4)
             
@@ -117,7 +229,6 @@ def render():
             bc2.metric("Table Drop", f"${total_table_drop:,.0f}")
             bc3.metric("Attributed Media Spend", f"${total_marketing:,.0f}")
             
-            # Prevent division by zero for ROAS
             if total_marketing > 0:
                 roas = (total_coin_in + total_table_drop) / total_marketing
                 bc4.metric("O2O Blended ROAS", f"{roas:.1f}x")
@@ -130,7 +241,7 @@ def render():
             st.markdown("#### Dynamic Media Mix Modeling")
             
             if not has_data:
-                st.info("👋 Upload your daily ledger in the Settings tab to activate the AI charting engine.")
+                st.info("👋 Upload or enter your daily ledger on the Master Overview tab to activate the AI charting engine.")
             else:
                 col_controls, col_chart = st.columns([1, 3])
                 
@@ -152,7 +263,6 @@ def render():
                         else:
                             adstock[i] = daily_spend[i] + (adstock[i-1] * decay_rate)
                     
-                    # Still using simulated traffic for the visualizer until we build the correlation math
                     base_traffic = np.random.normal(5000, 200, 30) 
                     correlated_traffic = base_traffic + (adstock * 0.15) 
                     
