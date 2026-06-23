@@ -83,12 +83,27 @@ def render():
             st.markdown("### 🧠 O2O Attribution & Adstock Engine")
             st.markdown("Calculate closed-loop ROI by correlating digital media decay with physical floor performance.")
             
+            # --- DYNAMIC DATA FETCH ---
+            try:
+                perf_res = supabase.table("property_performance").select("coin_in, table_drop").eq("parent_company_id", comp_id).execute()
+                
+                if perf_res.data:
+                    df_perf = pd.DataFrame(perf_res.data)
+                    total_coin_in = df_perf['coin_in'].sum()
+                    total_table_drop = df_perf['table_drop'].sum()
+                else:
+                    total_coin_in = 0.0
+                    total_table_drop = 0.0
+            except:
+                total_coin_in = 0.0
+                total_table_drop = 0.0
+            
             # 1. Operational Baselines
             st.markdown("#### Month-to-Date Reconciled Ledgers")
             bc1, bc2, bc3, bc4 = st.columns(4)
-            bc1.metric("Gross Coin-In", "$185,040,398", "+2.4% MoM")
-            bc2.metric("Table Drop", "$19,654,460", "+1.1% MoM")
-            bc3.metric("Attributed Media Spend", "$124,500", "Meta + Search")
+            bc1.metric("Gross Coin-In", f"${total_coin_in:,.0f}", "+2.4% MoM")
+            bc2.metric("Table Drop", f"${total_table_drop:,.0f}", "+1.1% MoM")
+            bc3.metric("Attributed Media Spend", "$124,500", "Meta + Search") # Placeholder until we build the media spend uploader
             bc4.metric("O2O Blended ROAS", "14.2x", "Highly Efficient")
             
             st.divider()
