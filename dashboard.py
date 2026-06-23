@@ -30,7 +30,31 @@ def render():
         return
 
     # ==========================================
-    # 2. TOP NAVIGATION BAR
+    # 2. GLOBAL DATA FETCH
+    # ==========================================
+    # We fetch the data up here so ALL tabs can use it
+    try:
+        perf_res = supabase.table("property_performance").select("coin_in, table_drop, marketing_spend").eq("parent_company_id", comp_id).execute()
+        
+        if perf_res.data:
+            df_perf = pd.DataFrame(perf_res.data)
+            total_coin_in = df_perf['coin_in'].sum()
+            total_table_drop = df_perf['table_drop'].sum()
+            total_marketing = df_perf['marketing_spend'].sum()
+            has_data = True
+        else:
+            total_coin_in = 0.0
+            total_table_drop = 0.0
+            total_marketing = 0.0
+            has_data = False
+    except:
+        total_coin_in = 0.0
+        total_table_drop = 0.0
+        total_marketing = 0.0
+        has_data = False
+
+    # ==========================================
+    # 3. TOP NAVIGATION BAR
     # ==========================================
     nav_c1, nav_c2, nav_c3 = st.columns([6, 2, 1])
     with nav_c1: 
@@ -47,7 +71,7 @@ def render():
     st.divider()
 
     # ==========================================
-    # 3. DYNAMIC TAB GENERATOR
+    # 4. DYNAMIC TAB GENERATOR
     # ==========================================
     tab_titles = ["📊 Master Overview"]
     
@@ -66,15 +90,17 @@ def render():
         st.caption("Aggregated predictive demand across all departments.")
         
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("Predicted Floor Traffic", "12,450", "+4% vs Last Week")
         
-        if "Hotel Premium" in active_modules: c2.metric("Forecasted ADR", "$214.50", "+$12.00")
+        # Cleaned up placeholders - now shows 0 if no data
+        c1.metric("Current Gross Coin-In", f"${total_coin_in:,.0f}")
+        
+        if "Hotel Premium" in active_modules: c2.metric("Forecasted ADR", "$0.00", "Awaiting Hotel Data")
         else: c2.metric("Forecasted ADR", "🔒 Locked", "Requires Hotel Module")
             
-        if "F&B Premium" in active_modules: c3.metric("F&B Covers (Est)", "1,840", "-2%")
+        if "F&B Premium" in active_modules: c3.metric("F&B Covers", "0", "Awaiting POS Data")
         else: c3.metric("F&B Covers", "🔒 Locked", "Requires F&B Module")
             
-        c4.metric("Active Marketing Campaigns", "3", "ROI tracking live")
+        c4.metric("Attributed Media Spend", f"${total_marketing:,.0f}")
 
     # --- TAB 2: THE BRAINS (CORE AI & MARKETING) ---
     current_tab_index = 1
@@ -83,73 +109,62 @@ def render():
             st.markdown("### 🧠 O2O Attribution & Adstock Engine")
             st.markdown("Calculate closed-loop ROI by correlating digital media decay with physical floor performance.")
             
-            # --- DYNAMIC DATA FETCH ---
-            try:
-                perf_res = supabase.table("property_performance").select("coin_in, table_drop").eq("parent_company_id", comp_id).execute()
-                
-                if perf_res.data:
-                    df_perf = pd.DataFrame(perf_res.data)
-                    total_coin_in = df_perf['coin_in'].sum()
-                    total_table_drop = df_perf['table_drop'].sum()
-                else:
-                    total_coin_in = 0.0
-                    total_table_drop = 0.0
-            except:
-                total_coin_in = 0.0
-                total_table_drop = 0.0
-            
-            # 1. Operational Baselines
+            # 1. Operational Baselines (Now 100% Honest)
             st.markdown("#### Month-to-Date Reconciled Ledgers")
             bc1, bc2, bc3, bc4 = st.columns(4)
-            bc1.metric("Gross Coin-In", f"${total_coin_in:,.0f}", "+2.4% MoM")
-            bc2.metric("Table Drop", f"${total_table_drop:,.0f}", "+1.1% MoM")
-            bc3.metric("Attributed Media Spend", "$124,500", "Meta + Search") # Placeholder until we build the media spend uploader
-            bc4.metric("O2O Blended ROAS", "14.2x", "Highly Efficient")
+            
+            bc1.metric("Gross Coin-In", f"${total_coin_in:,.0f}")
+            bc2.metric("Table Drop", f"${total_table_drop:,.0f}")
+            bc3.metric("Attributed Media Spend", f"${total_marketing:,.0f}")
+            
+            # Prevent division by zero for ROAS
+            if total_marketing > 0:
+                roas = (total_coin_in + total_table_drop) / total_marketing
+                bc4.metric("O2O Blended ROAS", f"{roas:.1f}x")
+            else:
+                bc4.metric("O2O Blended ROAS", "0.0x", "Requires Media Spend")
             
             st.divider()
 
             # 2. Interactive Adstock Modeler
             st.markdown("#### Dynamic Media Mix Modeling")
             
-            col_controls, col_chart = st.columns([1, 3])
-            
-            with col_controls:
-                st.markdown("##### Attribution Controls")
-                decay_rate = st.slider("Adstock Decay Rate (λ)", min_value=0.1, max_value=0.9, value=0.5, step=0.1, help="The percentage of ad impact that carries over to the next day.")
-                spend_spike = st.number_input("Inject Ad Spend Spike ($)", min_value=0, max_value=50000, value=15000, step=1000)
-                spike_day = st.slider("Day of Campaign Launch", 1, 30, 5)
-            
-            with col_chart:
-                # Generate a 30-day baseline simulation
-                days = np.arange(1, 31)
-                daily_spend = np.zeros(30)
-                daily_spend[spike_day-1] = spend_spike  # Inject the selected spend
+            if not has_data:
+                st.info("👋 Upload your daily ledger in the Settings tab to activate the AI charting engine.")
+            else:
+                col_controls, col_chart = st.columns([1, 3])
                 
-                # Calculate Adstock (The mathematical carryover of the ad spend)
-                adstock = np.zeros(30)
-                for i in range(30):
-                    if i == 0:
-                        adstock[i] = daily_spend[i]
-                    else:
-                        adstock[i] = daily_spend[i] + (adstock[i-1] * decay_rate)
+                with col_controls:
+                    st.markdown("##### Attribution Controls")
+                    decay_rate = st.slider("Adstock Decay Rate (λ)", min_value=0.1, max_value=0.9, value=0.5, step=0.1)
+                    spend_spike = st.number_input("Inject Ad Spend Spike ($)", min_value=0, max_value=50000, value=15000, step=1000)
+                    spike_day = st.slider("Day of Campaign Launch", 1, 30, 5)
                 
-                # Simulate correlated floor traffic based on the Adstock momentum
-                base_traffic = np.random.normal(5000, 200, 30) # Baseline casino traffic
-                correlated_traffic = base_traffic + (adstock * 0.15) # Traffic bump from adstock
-                
-                # Build the DataFrame for charting
-                df_mmm = pd.DataFrame({
-                    "Day": days,
-                    "Raw Ad Spend": daily_spend,
-                    "Effective Adstock Curve": adstock,
-                    "Physical Floor Traffic": correlated_traffic
-                }).set_index("Day")
+                with col_chart:
+                    days = np.arange(1, 31)
+                    daily_spend = np.zeros(30)
+                    daily_spend[spike_day-1] = spend_spike
+                    
+                    adstock = np.zeros(30)
+                    for i in range(30):
+                        if i == 0:
+                            adstock[i] = daily_spend[i]
+                        else:
+                            adstock[i] = daily_spend[i] + (adstock[i-1] * decay_rate)
+                    
+                    # Still using simulated traffic for the visualizer until we build the correlation math
+                    base_traffic = np.random.normal(5000, 200, 30) 
+                    correlated_traffic = base_traffic + (adstock * 0.15) 
+                    
+                    df_mmm = pd.DataFrame({
+                        "Day": days,
+                        "Raw Ad Spend": daily_spend,
+                        "Effective Adstock Curve": adstock,
+                        "Simulated Floor Traffic": correlated_traffic
+                    }).set_index("Day")
 
-                st.markdown("##### Marketing Carryover vs. Floor Traffic")
-                # Plotting the Adstock curve against the Traffic
-                st.line_chart(df_mmm[["Effective Adstock Curve", "Physical Floor Traffic"]], height=350, use_container_width=True)
-                
-            st.caption("Visualizing the 'memory' of digital ad spend. As the effective Adstock curve decays, observe the delayed, correlated impact on physical footfall entering the property.")
+                    st.markdown("##### Marketing Carryover vs. Floor Traffic")
+                    st.line_chart(df_mmm[["Effective Adstock Curve", "Simulated Floor Traffic"]], height=350, use_container_width=True)
 
         current_tab_index += 1
 
