@@ -145,6 +145,82 @@ def render():
                     if st.form_submit_button("🚀 Commit to Ledger", type="primary", use_container_width=True):
                         save_daily_log(entry_date, {"coin_in": m_coin, "table_drop": m_table, "actual_traffic": m_traffic, "new_members": m_members, "attendance": m_event, "active_promo": m_promo.strip() if m_promo else None, "rain_mm": m_rain, "snow_cm": m_snow})
 
+            # --- THE NEW FORENSIC LEDGER EDITOR ---
+            with st.expander("📂 Historical Ledger Corrections", expanded=False):
+                st.markdown("Edit recent entries directly in the table below. To delete a row, select it using the checkbox on the left and press `Delete` on your keyboard. Click Save to sync to the database.")
+                
+                if has_data and not df_perf.empty:
+                    df_edit = df_perf.copy()
+                    df_edit['record_date'] = pd.to_datetime(df_edit['record_date']).dt.date
+                    edit_cols = ['id', 'record_date', 'coin_in', 'table_drop', 'actual_traffic', 'new_members', 'attendance', 'active_promo', 'rain_mm', 'snow_cm']
+                    
+                    for c in edit_cols:
+                        if c not in df_edit.columns: df_edit[c] = None
+                    
+                    df_edit = df_edit[edit_cols].head(30) # Show last 30 records to keep UI fast
+                    
+                    with st.form("ledger_corrections_form", border=False):
+                        edited_df = st.data_editor(
+                            df_edit,
+                            column_config={
+                                "id": None, # Hide the UUID from the user
+                                "record_date": st.column_config.DateColumn("Date", required=True),
+                                "coin_in": st.column_config.NumberColumn("Coin-In ($)", step=100.0),
+                                "table_drop": st.column_config.NumberColumn("Table Drop ($)", step=100.0),
+                                "actual_traffic": st.column_config.NumberColumn("Traffic", step=1),
+                                "new_members": st.column_config.NumberColumn("New Members", step=1),
+                                "attendance": st.column_config.NumberColumn("Event Attendance", step=1),
+                                "active_promo": st.column_config.TextColumn("Active Promo"),
+                                "rain_mm": st.column_config.NumberColumn("Rain (mm)"),
+                                "snow_cm": st.column_config.NumberColumn("Snow (cm)"),
+                            },
+                            num_rows="dynamic",
+                            use_container_width=True,
+                            hide_index=True,
+                            key="interactive_ledger_editor"
+                        )
+                        
+                        if st.form_submit_button("💾 Sync Corrections to Vault", type="primary", use_container_width=True):
+                            try:
+                                # 1. Detect Deletions
+                                orig_ids = set(df_edit['id'].dropna())
+                                new_ids = set(edited_df['id'].dropna())
+                                deleted_ids = orig_ids - new_ids
+                                
+                                if deleted_ids:
+                                    for d_id in deleted_ids:
+                                        supabase.table("property_performance").delete().eq("id", d_id).execute()
+                                
+                                # 2. Handle Upserts (Edits & New Rows added via grid)
+                                upsert_payload = []
+                                for _, row in edited_df.iterrows():
+                                    rec = {
+                                        "parent_company_id": comp_id,
+                                        "record_date": str(row['record_date']),
+                                        "coin_in": row['coin_in'] if pd.notna(row['coin_in']) else 0,
+                                        "table_drop": row['table_drop'] if pd.notna(row['table_drop']) else 0,
+                                        "actual_traffic": row['actual_traffic'] if pd.notna(row['actual_traffic']) else 0,
+                                        "new_members": row['new_members'] if pd.notna(row['new_members']) else 0,
+                                        "attendance": row['attendance'] if pd.notna(row['attendance']) else 0,
+                                        "active_promo": row['active_promo'] if pd.notna(row['active_promo']) else None,
+                                        "rain_mm": row['rain_mm'] if pd.notna(row['rain_mm']) else 0,
+                                        "snow_cm": row['snow_cm'] if pd.notna(row['snow_cm']) else 0
+                                    }
+                                    if pd.notna(row.get('id')): 
+                                        rec['id'] = row['id']
+                                    upsert_payload.append(rec)
+                                    
+                                if upsert_payload:
+                                    supabase.table("property_performance").upsert(upsert_payload).execute()
+                                    
+                                st.success("✅ Ledger Corrections Synchronized.")
+                                time.sleep(1.5)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Sync failed: {e}")
+                else:
+                    st.info("No ledger data found to edit.")
+
             st.divider()
             st.markdown("#### 🔮 Predictive Scenario Simulator")
             st.caption("Forecast future floor traffic based on seasonal physics and weather friction.")
@@ -174,7 +250,7 @@ def render():
 
         current_tab_index += 1
 
-        # --- TAB 3: MARKETING (WITH FULL LEGACY BL-ROAS FIELDS) ---
+        # --- TAB 3: MARKETING ---
         with tabs[current_tab_index]:
             st.markdown("### 📈 Marketing & Attribution Analytics")
             mkt_tabs = st.tabs(["💰 Monthly Spend & BL-ROAS", "📊 O2O Attribution Visuals", "🔬 Experiment Vault"])
@@ -188,7 +264,6 @@ def render():
                 with st.form("roas_monthly_form", border=True):
                     selected_month = st.date_input("Audit Fiscal Month", value=date.today().replace(day=1))
                     
-                    # 1. Fetch current month's physical ledger data to match legacy logic
                     ledger_traffic, ledger_signups, ledger_coin_in = 0, 0, 0.0
                     if not df_perf.empty:
                         df_perf['record_date'] = pd.to_datetime(df_perf['record_date'])
@@ -199,7 +274,6 @@ def render():
                             ledger_signups = int(selected_month_df['new_members'].sum()) if 'new_members' in selected_month_df.columns else 0
                             ledger_coin_in = float(selected_month_df['coin_in'].sum()) if 'coin_in' in selected_month_df.columns else 0.0
 
-                    # 2. THE EXACT LEGACY FORM FIELDS
                     st.markdown("##### 1. Investment & Traffic")
                     c1, c2, c3 = st.columns(3)
                     utm_s = c1.number_input("UTM Sessions", min_value=0, step=100)
@@ -229,7 +303,6 @@ def render():
                     """, unsafe_allow_html=True)
 
                     if st.form_submit_button("🚀 Generate BL-ROAS Audit", use_container_width=True):
-                        # EXACT LEGACY FORMULA
                         brand_value = (utm_s * 1.5) + (org_s * 0.5) + (likes * 0.1) + (shares * 0.5) + (geo_lift * 2.0)
                         bl_roas = brand_value / ad_spend if ad_spend > 0 else 0.0
                         enhanced_rev = brand_value + ledger_coin_in + (ledger_signups * LTV_BENCHMARK)
@@ -249,13 +322,10 @@ def render():
                         except Exception as e:
                             st.error(f"Error saving ROI data: {e}")
 
-                # Display Historical ROAS & Summary
                 try:
                     roi_res = supabase.table("monthly_roi").select("*").eq("parent_company_id", comp_id).order("report_month", desc=True).execute()
                     if roi_res.data:
                         df_roi = pd.DataFrame(roi_res.data)
-                        
-                        # Generate the Legacy Executive Summary Text Box
                         curr_row = df_roi.iloc[0]
                         prop_potential = ledger_coin_in + (ledger_signups * LTV_BENCHMARK)
                         
