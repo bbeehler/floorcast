@@ -39,6 +39,51 @@ def get_forensic_metrics(df_input, coeffs):
         
     return {"df": df}
 
+def get_omniscient_advisor_context(comp_id):
+    """Hydrates the AI with live data from all active modules for the specific property."""
+    context = f"--- EXECUTIVE ANALYST CONTEXT FOR PROPERTY {comp_id} ---\n"
+    
+    # 1. Casino Performance
+    perf = supabase.table("property_performance").select("*").eq("parent_company_id", comp_id).order("record_date", desc=True).limit(30).execute()
+    if perf.data: context += f"\nCASINO LEDGER (30d):\n{pd.DataFrame(perf.data).to_string()}\n"
+    
+    # 2. Marketing ROI
+    roi = supabase.table("monthly_roi").select("*").eq("parent_company_id", comp_id).order("report_month", desc=True).limit(6).execute()
+    if roi.data: context += f"\nMARKETING ROI MATRIX (6m):\n{pd.DataFrame(roi.data).to_string()}\n"
+    
+    # 3. Sentiment & PR
+    sent = supabase.table("sentiment_history").select("*").eq("parent_company_id", comp_id).order("timestamp", desc=True).limit(50).execute()
+    if sent.data: context += f"\nRECENT GUEST SENTIMENT:\n{pd.DataFrame(sent.data).to_string()}\n"
+    
+    # 4. PR Scorecard
+    pr = supabase.table("pr_scorecard").select("*").eq("parent_company_id", comp_id).order("report_month", desc=True).limit(6).execute()
+    if pr.data: context += f"\nPR SCORECARD:\n{pd.DataFrame(pr.data).to_string()}\n"
+    
+    return context
+
+def ask_ai_advisor(query, comp_id):
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    model = genai.GenerativeModel('gemini-2.5-flash')
+    
+    # Hydrate the context
+    context = get_omniscient_advisor_context(comp_id)
+    
+    prompt = f"""
+    You are the FloorCast AI Advisor. You have full visibility into the property's operational and marketing data. 
+    Analyze the context provided and provide a data-backed recommendation.
+    
+    CONTEXT:
+    {context}
+    
+    USER QUERY:
+    {query}
+    
+    ADVISOR RECOMMENDATION:
+    """
+    
+    response = model.generate_content(prompt)
+    return response.text
+
 def get_aggregated_email_analytics(comp_id, s_date, e_date):
     target_uuid = str(comp_id)
     start_str = s_date.replace(day=1).strftime("%Y-%m-%d")
@@ -140,6 +185,23 @@ def get_aggregated_email_analytics(comp_id, s_date, e_date):
 def render():
     profile = st.session_state.user_profile
     user_role = profile.get('global_role', 'User')
+
+if "show_ai_hub" not in st.session_state: st.session_state.show_ai_hub = False
+
+@st.dialog("FloorCast AI Advisor", width="large")
+def ai_hub_modal():
+    st.markdown("### 🤖 Ask the Advisor")
+    query = st.text_input("What would you like to analyze?", placeholder="e.g., Why did revenue drop despite high ad spend?")
+    if st.button("Generate Strategy"):
+        if query:
+            with st.spinner("Analyzing cross-module data..."):
+                response = ask_ai_advisor(query, comp_id)
+                st.markdown(response)
+
+# --- TRIGGER LOGIC ---
+if st.session_state.show_ai_hub:
+    ai_hub_modal()
+    # Logic to reset show_ai_hub state after closing
 
     # ==========================================
     # 1. FETCH CLIENT CONTEXT & SUBSCRIPTIONS
