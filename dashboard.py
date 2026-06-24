@@ -174,7 +174,7 @@ def render():
 
         current_tab_index += 1
 
-        # --- TAB 3: MARKETING ---
+        # --- TAB 3: MARKETING (WITH FULL LEGACY BL-ROAS FIELDS) ---
         with tabs[current_tab_index]:
             st.markdown("### 📈 Marketing & Attribution Analytics")
             mkt_tabs = st.tabs(["💰 Monthly Spend & BL-ROAS", "📊 O2O Attribution Visuals", "🔬 Experiment Vault"])
@@ -183,25 +183,56 @@ def render():
                 st.markdown("#### Monthly Ad Spend & ROI Calculator")
                 st.caption("Calculate Brand Lift - Return on Ad Spend (BL-ROAS) based on your monthly digital deployments.")
                 
+                LTV_BENCHMARK = 1900.00
+                
                 with st.form("roas_monthly_form", border=True):
                     selected_month = st.date_input("Audit Fiscal Month", value=date.today().replace(day=1))
                     
+                    # 1. Fetch current month's physical ledger data to match legacy logic
+                    ledger_traffic, ledger_signups, ledger_coin_in = 0, 0, 0.0
+                    if not df_perf.empty:
+                        df_perf['record_date'] = pd.to_datetime(df_perf['record_date'])
+                        m_mask = (df_perf['record_date'].dt.month == selected_month.month) & (df_perf['record_date'].dt.year == selected_month.year)
+                        selected_month_df = df_perf.loc[m_mask].copy()
+                        if not selected_month_df.empty:
+                            ledger_traffic = int(selected_month_df['actual_traffic'].sum()) if 'actual_traffic' in selected_month_df.columns else 0
+                            ledger_signups = int(selected_month_df['new_members'].sum()) if 'new_members' in selected_month_df.columns else 0
+                            ledger_coin_in = float(selected_month_df['coin_in'].sum()) if 'coin_in' in selected_month_df.columns else 0.0
+
+                    # 2. THE EXACT LEGACY FORM FIELDS
                     st.markdown("##### 1. Investment & Traffic")
                     c1, c2, c3 = st.columns(3)
-                    ad_spend = c1.number_input("Total Ad Spend ($)", min_value=0.0, step=500.0)
-                    utm_s = c2.number_input("UTM Sessions", min_value=0, step=100)
-                    org_s = c3.number_input("Organic Sessions", min_value=0, step=100)
+                    utm_s = c1.number_input("UTM Sessions", min_value=0, step=100)
+                    org_s = c2.number_input("Organic Sessions", min_value=0, step=100)
+                    ad_spend = c3.number_input("Total Ad Spend ($)", min_value=0.0, step=500.0)
                     
                     st.markdown("##### 2. Social Engagement")
                     s1, s2, s3 = st.columns(3)
-                    likes = s1.number_input("Social Likes", min_value=0, step=10)
+                    likes = s1.number_input("Social Engagement", min_value=0, step=10)
                     shares = s2.number_input("Social Shares", min_value=0, step=5)
-                    views = s3.number_input("Impressions / Reach", min_value=0, step=1000)
+                    views = s3.number_input("Reach / Impressions", min_value=0, step=1000)
+
+                    st.markdown("##### 3. Digital Signals & Geo")
+                    g1, g2, g3 = st.columns(3)
+                    time_site = g1.number_input("Time-on-Site Sessions", min_value=0, step=10)
+                    cta_clicks = g2.number_input("Booking CTA Clicks", min_value=0, step=10)
+                    geo_lift = g3.number_input("Incremental Geo Traffic", min_value=0, step=10)
+
+                    st.divider()
+                    st.markdown(f"""
+                        <div style="background: rgba(0, 71, 171, 0.05); padding: 15px; border-radius: 8px; border: 1px solid rgba(0, 71, 171, 0.2); margin-bottom: 20px;">
+                            <p style="margin:0; font-size: 0.8rem; color: #0047AB; font-weight: 700; text-transform: uppercase;">Linked Casino Ledger Sync</p>
+                            <p style="margin:0; font-size: 0.95rem; color: #1e293b;">
+                                Coin-In: <b>${ledger_coin_in:,.2f}</b> | Traffic: <b>{ledger_traffic:,}</b> | Signups: <b>{ledger_signups:,}</b>
+                            </p>
+                        </div>
+                    """, unsafe_allow_html=True)
 
                     if st.form_submit_button("🚀 Generate BL-ROAS Audit", use_container_width=True):
-                        # Legacy BL-ROAS Formula
-                        brand_value = (utm_s * 1.5) + (org_s * 0.5) + (likes * 0.1) + (shares * 0.5)
+                        # EXACT LEGACY FORMULA
+                        brand_value = (utm_s * 1.5) + (org_s * 0.5) + (likes * 0.1) + (shares * 0.5) + (geo_lift * 2.0)
                         bl_roas = brand_value / ad_spend if ad_spend > 0 else 0.0
+                        enhanced_rev = brand_value + ledger_coin_in + (ledger_signups * LTV_BENCHMARK)
                         
                         try:
                             supabase.table("monthly_roi").upsert({
@@ -209,21 +240,44 @@ def render():
                                 "report_month": str(selected_month.replace(day=1)),
                                 "utm_sessions": utm_s, "organic_sessions": org_s, "ad_spend": ad_spend,
                                 "social_likes": likes, "social_shares": shares, "post_views": views,
-                                "brand_value": brand_value, "calculated_bl_roas": bl_roas
+                                "site_time_sessions": time_site, "booking_clicks": cta_clicks,
+                                "geo_lift_traffic": geo_lift, "brand_value": brand_value, 
+                                "calculated_bl_roas": bl_roas, "enhanced_revenue": enhanced_rev
                             }).execute()
                             st.success(f"Successfully vaulted BL-ROAS for {selected_month.strftime('%B %Y')}")
                             st.rerun()
                         except Exception as e:
                             st.error(f"Error saving ROI data: {e}")
 
-                # Display Historical ROAS
+                # Display Historical ROAS & Summary
                 try:
                     roi_res = supabase.table("monthly_roi").select("*").eq("parent_company_id", comp_id).order("report_month", desc=True).execute()
                     if roi_res.data:
-                        st.markdown("##### 📜 Audit History")
                         df_roi = pd.DataFrame(roi_res.data)
-                        st.dataframe(df_roi[['report_month', 'ad_spend', 'brand_value', 'calculated_bl_roas']], use_container_width=True, hide_index=True)
-                except:
+                        
+                        # Generate the Legacy Executive Summary Text Box
+                        curr_row = df_roi.iloc[0]
+                        prop_potential = ledger_coin_in + (ledger_signups * LTV_BENCHMARK)
+                        
+                        report_text = f"""{pd.to_datetime(curr_row['report_month']).strftime('%B %Y')} ROAS Results | {comp_name}
+--------------------------------------------------
+BRAND HEALTH PERFORMANCE
+BL-ROAS = {curr_row['calculated_bl_roas']:.2f}x
+Measured Brand Value Generated: ${curr_row['brand_value']:,.2f}
+
+ATTRIBUTED REVENUE IMPACT (ESTIMATED)
+• 10% Attribution: ${(prop_potential * 0.1):,.0f}
+• 20% Attribution: ${(prop_potential * 0.2):,.0f}
+• 30% Attribution: ${(prop_potential * 0.3):,.0f}
+
+ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
+                        
+                        st.markdown("##### 📄 Executive Summary (SharePoint Ready)")
+                        st.text_area("Audit Output Clip:", value=report_text, height=220)
+
+                        st.markdown("##### 📜 Audit History")
+                        st.dataframe(df_roi[['report_month', 'ad_spend', 'calculated_bl_roas', 'brand_value', 'enhanced_revenue']], use_container_width=True, hide_index=True)
+                except Exception as e:
                     pass
 
             with mkt_tabs[1]:
@@ -233,7 +287,6 @@ def render():
                         st.markdown("#### 🌊 Offline-to-Online Attribution")
                         total_guests = df_perf['actual_traffic'].sum() if 'actual_traffic' in df_perf.columns else 0
                         gravity_lift = (df_perf['attendance'].sum() * 0.25) if 'attendance' in df_perf.columns else 0
-                        # Substitute logic since we moved clicks/imps. In production, this reads from marketing ledger.
                         digital_lift = total_guests * 0.15 
                         organic_base = total_guests - digital_lift - gravity_lift
                         
@@ -361,3 +414,40 @@ def render():
             with b_col2:
                 st.markdown("##### Account Balance")
                 st.markdown(f"<h3 style='margin:0; color:{'#EF4444' if comp_owed > 0 else '#10B981'};'>${comp_owed:,.2f}</h3>", unsafe_allow_html=True)
+                if pending_invoices:
+                    st.markdown("**Pending Invoices:**")
+                    for inv in pending_invoices: st.markdown(f"- Due: **{inv['due_date']}** | Amount: **${inv['invoice_amount']:,.2f}**")
+                else: st.success("All invoices are settled.")
+
+        with st.expander("📂 Master Ledger Database & Bulk Upload"):
+            t_data, t_csv = st.tabs(["📋 View Raw Database", "📥 Bulk CSV Upload"])
+            with t_data:
+                if has_data: st.dataframe(df_perf, use_container_width=True, hide_index=True)
+                else: st.info("No ledger data found.")
+            with t_csv:
+                st.caption("Accepted columns: `date`, `coin_in`, `table_drop`, `marketing_spend`, `actual_traffic`, `new_members`, `attendance`, `ad_clicks`, `ad_impressions`, `active_promo`, `experiment_tag`, `rain_mm`, `snow_cm`, `rooms_sold`, `adr`, `fb_covers`, `fb_revenue`, `tickets_sold`, `ent_revenue`")
+                with st.form("bulk_upload_form"):
+                    dash_file = st.file_uploader("Drop Multi-Department CSV Here", type=["csv"], label_visibility="collapsed")
+                    if st.form_submit_button("Process Bulk Data", use_container_width=True, type="primary") and dash_file:
+                        try:
+                            df_new = pd.read_csv(dash_file)
+                            df_new.columns = df_new.columns.str.strip().str.lower().str.replace(' ', '_')
+                            for col in df_new.columns:
+                                if col not in ['date', 'active_promo', 'experiment_tag']: df_new[col] = df_new[col].replace('[\$,]', '', regex=True).astype(float)
+                            records = [{"parent_company_id": comp_id, "record_date": str(row['date']), **{c: row[c] for c in ['coin_in', 'table_drop', 'marketing_spend', 'actual_traffic', 'new_members', 'attendance', 'ad_clicks', 'ad_impressions', 'active_promo', 'experiment_tag', 'rain_mm', 'snow_cm', 'rooms_sold', 'adr', 'fb_covers', 'fb_revenue', 'tickets_sold', 'ent_revenue'] if c in df_new.columns}} for _, row in df_new.iterrows() if 'date' in df_new.columns and pd.notna(row['date'])]
+                            if records:
+                                supabase.table("property_performance").upsert(records).execute()
+                                st.success("Master Ledger Updated!"); time.sleep(1.5); st.rerun()
+                        except Exception as e: st.error(f"Upload failed: {e}")
+
+        missing_modules = [m for m in all_modules.keys() if m not in active_modules]
+        if missing_modules:
+            st.divider()
+            st.markdown("#### 🚀 Upgrade Center")
+            upsell_cols = st.columns(len(missing_modules) if len(missing_modules) < 4 else 3)
+            for i, mod_name in enumerate(missing_modules):
+                with upsell_cols[i % 3]:
+                    st.markdown(f"<div style='background-color: #F8FAFC; padding: 1.5rem; border-radius: 8px; border: 1px solid #E2E8F0; margin-bottom: 15px;'><h5 style='margin-top: 0; color: #0F172A;'>🔒 {mod_name}</h5><p style='color: #64748B; font-size: 0.9rem;'>{all_modules[mod_name]['description']}</p></div>", unsafe_allow_html=True)
+                    if st.button(f"Request Activation", key=f"req_{mod_name}", type="secondary", use_container_width=True):
+                        supabase.table("module_requests").insert({"parent_company_id": comp_id, "module_name": mod_name, "requested_by": profile['email']}).execute()
+                        st.success(f"Request sent! We will contact you regarding {mod_name}.")
