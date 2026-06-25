@@ -203,6 +203,10 @@ def render():
     profile = st.session_state.user_profile
     user_role = profile.get('global_role', 'User')
 
+    # State toggle for the AI Modal
+    if "show_ai_hub" not in st.session_state: 
+        st.session_state.show_ai_hub = False
+
     # --- 1. FETCH CLIENT CONTEXT & SUBSCRIPTIONS ---
     try:
         access_res = supabase.table("user_property_access").select("parent_company_id, parent_companies(company_name, total_owed)").eq("user_email", profile['email']).execute()
@@ -229,25 +233,28 @@ def render():
         st.error(f"Failed to load workspace data: {e}")
         return
 
-    # --- 2. THE PERSISTENT SIDEBAR AI ADVISOR ---
-    with st.sidebar:
-        st.markdown("### 🤖 FloorCast AI Advisor")
-        st.caption(f"Connected to **{comp_name}** databases.")
+    # --- 2. THE AI ADVISOR MODAL (Properly Defined!) ---
+    @st.dialog("FloorCast AI Advisor", width="large")
+    def ai_hub_modal():
+        st.markdown(f"### 🤖 Ask the Advisor ({comp_name})")
+        st.caption("The AI has full context of your latest Casino, Marketing, PR, and Sentiment databases.")
         
-        ai_query = st.text_area("Forensic Query:", placeholder="e.g. Why did revenue drop despite high ad spend last month?", height=120)
+        query = st.text_input("What would you like to forensically analyze today?", placeholder="e.g., Explain why table drop fell on car promotion days...")
         
         if st.button("Execute Strategic Analysis", type="primary", use_container_width=True):
-            if ai_query:
-                with st.spinner("Hydrating context & analyzing..."):
-                    res = ask_ai_advisor(ai_query, comp_id)
-                    st.session_state.ai_last_response = res
-                    
-        if st.session_state.get('ai_last_response'):
-            st.markdown("---")
-            st.markdown(st.session_state.ai_last_response)
-            if st.button("Clear Output", use_container_width=True):
-                st.session_state.ai_last_response = ""
-                st.rerun()
+            if query:
+                with st.spinner("Compiling cross-relational tables into LLM context layer..."):
+                    response = ask_ai_advisor(query, comp_id)
+                    st.markdown("---")
+                    st.markdown(response)
+        
+        if st.button("Close Advisor Hub", use_container_width=True):
+            st.session_state.show_ai_hub = False
+            st.rerun()
+
+    # Trigger the modal if the button was clicked
+    if st.session_state.show_ai_hub:
+        ai_hub_modal()
 
     # --- 3. GLOBAL DATA FETCH ---
     try:
@@ -285,15 +292,20 @@ def render():
             st.error(f"Save failed: {e}")
 
     # --- 4. TOP NAVIGATION BAR ---
-    nav_c1, nav_c2, nav_c3 = st.columns([6, 2, 1])
-    with nav_c1: st.markdown(f"<h3 style='margin-top: 10px; color:#111827;'>🎰 FloorCast OS <span style='color: #6B7280; font-weight: 400; font-size: 1.2rem;'>| {comp_name}</span></h3>", unsafe_allow_html=True)
-    with nav_c2: st.markdown(f"<p style='margin-top: 15px; color:#6B7280; font-size: 0.9rem; text-align: right;'>👤 {profile.get('first_name', '')} ({user_role})</p>", unsafe_allow_html=True)
+    nav_c1, nav_c2, nav_c3, nav_c4 = st.columns([4, 2, 1.5, 1.2])
+    with nav_c1: 
+        st.markdown(f"<h3 style='margin-top: 10px; color:#111827;'>🎰 FloorCast OS <span style='color: #6B7280; font-weight: 400; font-size: 1.2rem;'>| {comp_name}</span></h3>", unsafe_allow_html=True)
+    with nav_c2: 
+        st.markdown(f"<p style='margin-top: 15px; color:#6B7280; font-size: 0.9rem; text-align: right;'>👤 {profile.get('first_name', '')} ({user_role})</p>", unsafe_allow_html=True)
     with nav_c3:
-        st.markdown('<div class="ghost-btn">', unsafe_allow_html=True)
+        # THE AI HUB TRIGGER BUTTON
+        if st.button("🤖 AI Advisor", use_container_width=True, type="primary"):
+            st.session_state.show_ai_hub = True
+            st.rerun()
+    with nav_c4:
         if st.button("Sign Out", use_container_width=True):
             st.session_state.clear()
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
     st.divider()
 
     # --- 5. DYNAMIC TAB GENERATOR ---
