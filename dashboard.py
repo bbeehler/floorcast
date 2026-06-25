@@ -231,20 +231,21 @@ def render():
         st.error(f"Failed to load workspace data: {e}")
         return
 
-    # --- 2. AI ADVISOR MODAL (Scope-Safe) ---
+    # --- 2. AI ADVISOR MODAL (Scope-Safe Trigger) ---
     @st.dialog("FloorCast AI Advisor", width="large")
     def ai_hub_modal():
-        st.markdown(f"### 🤖 Ask the Advisor ({comp_name})")
-        st.caption("The AI has full context of your latest Casino, Marketing, PR, and Sentiment data.")
-        query = st.text_input("What would you like to analyze?", placeholder="e.g., Why did revenue drop despite high ad spend?")
+        st.markdown(f"### 🤖 FloorCast AI Advisor — {comp_name}")
+        st.caption("Our system is fully context-hydrated. The advisor has direct visibility into your recent Casino, Marketing metrics, PR Reach, and scored Guest Sentiment logs.")
+        query = st.text_input("What would you like to forensically analyze today?", placeholder="e.g., Explain why table drop fell on car promotion days...")
         
-        if st.button("Generate Strategy", type="primary"):
+        if st.button("Execute Strategic Analysis", type="primary", use_container_width=True):
             if query:
-                with st.spinner("Analyzing cross-module data..."):
+                with st.spinner("Compiling cross-relational tables into LLM context layer..."):
                     response = ask_ai_advisor(query, comp_id)
+                    st.markdown("---")
                     st.markdown(response)
         
-        if st.button("Close Advisor"):
+        if st.button("Close Advisor Hub", use_container_width=True):
             st.session_state.show_ai_hub = False
             st.rerun()
 
@@ -286,22 +287,18 @@ def render():
         except Exception as e:
             st.error(f"Save failed: {e}")
 
-    # --- 4. TOP NAVIGATION BAR ---
-    nav_c1, nav_c2, nav_c3, nav_c4 = st.columns([5, 2, 1, 1])
+    # --- 4. TOP NAVIGATION BAR (AI Hub Clean Placement) ---
+    nav_c1, nav_c2, nav_c3, nav_c4 = st.columns([5, 2, 1.2, 1.2])
     with nav_c1: st.markdown(f"<h3 style='margin-top: 10px; color:#111827;'>🎰 FloorCast OS <span style='color: #6B7280; font-weight: 400; font-size: 1.2rem;'>| {comp_name}</span></h3>", unsafe_allow_html=True)
     with nav_c2: st.markdown(f"<p style='margin-top: 15px; color:#6B7280; font-size: 0.9rem; text-align: right;'>👤 {profile.get('first_name', '')} ({user_role})</p>", unsafe_allow_html=True)
     with nav_c3:
-        st.markdown('<div class="ghost-btn">', unsafe_allow_html=True)
-        if st.button("🤖 AI Hub", use_container_width=True):
+        if st.button("🕵️ AI Advisor", use_container_width=True, type="secondary"):
             st.session_state.show_ai_hub = True
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
     with nav_c4:
-        st.markdown('<div class="ghost-btn">', unsafe_allow_html=True)
         if st.button("Sign Out", use_container_width=True):
             st.session_state.clear()
             st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
     st.divider()
 
     # --- 5. DYNAMIC TAB GENERATOR ---
@@ -343,7 +340,7 @@ def render():
                     m_traffic = f3.number_input("Actual Traffic", min_value=0, step=1)
                     m_members = f4.number_input("New Members", min_value=0, step=1)
                     
-                    st.markdown("##### Environmental & Operational Context")
+                    st.markdown("##### Digital Signal & Marketing")
                     c1, c2, c3, c4 = st.columns(4)
                     m_promo = c1.text_input("Active Promotion (e.g. Car Giveaway)")
                     m_event = c2.number_input("Event Attendance", min_value=0, step=1)
@@ -547,7 +544,7 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
 
         current_tab_index += 1
 
-        # --- TAB 4: THE MASTER FORENSIC AUDIT (LEGACY PORT) ---
+        # --- TAB 4: REPORTS ---
         with tabs[current_tab_index]:
             st.markdown(f"### 📋 Master Property Audit: {comp_name}")
             st.caption("Forensic Ledger: Financials, Multi-Channel Attribution, & Earned Media")
@@ -567,8 +564,6 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                     df_audit = df_perf.loc[mask].copy()
                     
                     if not df_audit.empty:
-                        
-                        # 1. GENERATE FORENSIC METRICS
                         coeffs = {'Promo': 500.0, 'Ad_Decay': 85, 'Clicks': 0.05, 'Social_Imp': 0.0002}
                         m = get_forensic_metrics(df_audit.to_dict(orient='records'), coeffs)
                         df_final = m['df']
@@ -582,12 +577,10 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                         
                         accuracy = (1 - (abs(t_traf - t_pred) / t_traf)) * 100 if t_traf > 0 else 0
 
-                        # DYNAMIC MoM PERCENTAGE LAYER 
                         mom_traf_pct, mom_rev_pct, mom_clicks_pct = "+4.8%", "+6.1%", "-1.4%"
                         mom_mems_pct, mom_reach_pct, mom_acc_pct = "+3.9%", "+8.2%", "+0.5%"
                         mom_reach_earned, mom_placements, mom_halo_pct, mom_variance_pct = "+11.4%", "+5.0%", "+7.1%", "-3.2%"
 
-                        # 2. EXECUTIVE SCOREBOARD
                         st.markdown("### 📊 Executive Summary")
                         k1, k2, k3, k4, k5, k6 = st.columns(6)
                         k1.metric("Total Traffic", f"{t_traf:,.0f}", delta=f"{mom_traf_pct} MoM")
@@ -597,7 +590,6 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                         k5.metric("Social Reach", f"{t_imps:,.0f}", delta=f"{mom_reach_pct} MoM")
                         k6.metric("AI Accuracy", f"{accuracy:.1f}%", delta=f"{mom_acc_pct} MoM")
 
-                        # 3. EMAIL AUDIT
                         st.divider()
                         st.markdown(f"### 📨 Email Performance & Distribution Audit ({s_date} to {e_date})")
                         macro_email, campaign_list, prev_email, prev_campaigns = get_aggregated_email_analytics(comp_id, s_date, e_date)
@@ -661,7 +653,6 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                         else:
                             st.info("No vaulted email metrics found within this date selection.")
 
-                        # 4. PR AUDIT
                         st.divider()
                         st.markdown("### 📢 Earned Media & PR Audit")
                         try:
@@ -674,17 +665,12 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                                 p1.metric("Earned Reach", f"{total_pr_imps:,}", delta=f"{mom_reach_earned} MoM")
                                 p2.metric("Media Placements", f"{total_pr_mentions}", delta=f"{mom_placements} MoM")
                                 halo = (total_pr_imps / t_traf) if t_traf > 0 else 0
-                                p3.metric("PR Halo Index", f"{halo:.2f} Imps/Guest", delta=f"{mom_halo_pct} MoM", help="Volume of earned media reach relative to physical footfall.")
-                                with st.expander("🔍 View Narrative PR Wins for this Period"):
-                                    for _, pr_row in df_pr_audit.iterrows():
-                                        st.markdown(f"**{pd.to_datetime(pr_row['report_month']).strftime('%B %Y')}:** {pr_row['mediums']}")
-                                        st.caption(pr_row['executive_summary'])
+                                p3.metric("PR Halo Index", f"{halo:.2f} Imps/Guest", delta=f"{mom_halo_pct} MoM")
                             else:
                                 st.info("No PR Scorecard data found for this audit window.")
                         except Exception as e:
                             pass
 
-                        # 5. FLOW CHART
                         st.divider()
                         st.markdown("### 🌊 Multi-Channel Attribution Flow")
                         fig_stack = go.Figure()
@@ -696,7 +682,6 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                         fig_stack.update_layout(height=400, template="plotly_white", margin=dict(l=10, r=10, t=10, b=10), xaxis=dict(title="Timeline Nodes"), yaxis=dict(title="Volume Flow Attribution"))
                         st.plotly_chart(fig_stack, use_container_width=True)
                         
-                        # 6. AI VARIANCE
                         st.divider()
                         st.markdown("### 🎯 Prediction vs. Reality")
                         v_col, i_col = st.columns([2, 1])
@@ -712,11 +697,7 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                                 total_days = len(df_final)
                                 avg_error = (df_final['actual_traffic'] - df_final['predicted_traffic']).abs().mean() if total_days > 0 and 'predicted_traffic' in df_final.columns else 0
                                 st.metric("Avg Daily Variance", f"{avg_error:,.0f} guests", delta=f"{mom_variance_pct} MoM", delta_color="inverse")
-                                if accuracy > 90: st.success("Elite Precision Tracking.")
-                                elif accuracy > 75: st.warning("Moderate Drift: Calibration Suggested.")
-                                else: st.error("High Variance: Manual Audit Required.")
 
-                        # 7. EXPORT
                         st.divider()
                         st.download_button("📥 Download Master Report (CSV)", data=df_final.to_csv(index=False).encode('utf-8'), file_name=f"FloorCast_Audit_{s_date}.csv", use_container_width=True)
                     else:
@@ -724,7 +705,7 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                         
         current_tab_index += 1
 
-    # --- TAB 5: BRAND & SENTIMENT ---
+    # --- BRAND & SENTIMENT ---
     if "Brand & Sentiment Premium" in active_modules:
         with tabs[current_tab_index]:
             st.markdown("### 📢 Brand Integrity & Sentiment Vault")
@@ -811,8 +792,6 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                             color = "#EF4444" if score < -0.3 else "#10B981" if score > 0.3 else "#F59E0B"
                             c2.metric("AI Score", f"{score:.2f}")
                             c2.markdown(f"<div style='height:8px; width:100%; background:{color}; border-radius:4px;'></div>", unsafe_allow_html=True)
-                else:
-                    st.info("No sentiment data vaulted yet.")
         current_tab_index += 1
 
     # --- TAB 6: HOTEL ENGINE ---
