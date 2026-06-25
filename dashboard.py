@@ -11,17 +11,17 @@ from datetime import date, timedelta
 from dateutil.relativedelta import relativedelta
 import calendar
 
-# --- LEGACY CALCULATION ENGINES ---
+# ==========================================
+# LEGACY CALCULATION & AI ENGINES
+# ==========================================
 def get_forensic_metrics(df_input, coeffs):
     if not df_input: return {"df": pd.DataFrame()}
     df = pd.DataFrame(df_input).copy()
     df['record_date'] = pd.to_datetime(df['record_date'])
     
-    # 1. Heartbeat Baseline
     hb = {d: float(coeffs.get(f'{d[:3]}_Base', 5000)) for d in ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']}
     df['baseline'] = df['record_date'].dt.day_name().map(hb).astype(float)
     
-    # 2. Marketing Attribution Logic
     dec, c1, c2 = float(coeffs.get('Ad_Decay', 85))/100, float(coeffs.get('Clicks', 0.05)), float(coeffs.get('Social_Imp', 0.0002))
     pool, lift = 0.0, []
     for _, r in df.iterrows():
@@ -29,7 +29,6 @@ def get_forensic_metrics(df_input, coeffs):
         lift.append(pool)
     df['residual_lift'] = lift
     
-    # 3. FINAL SYNTHESIS
     if 'predicted_traffic' in df.columns:
         fallback_calc = df['baseline'] + df['residual_lift'] + float(coeffs.get('Promo', 500.0))
         df['expected'] = pd.to_numeric(df['predicted_traffic'], errors='coerce').fillna(fallback_calc)
@@ -41,36 +40,30 @@ def get_forensic_metrics(df_input, coeffs):
 
 def get_omniscient_advisor_context(comp_id):
     """Hydrates the AI with live data from all active modules for the specific property."""
-    context = f"--- EXECUTIVE ANALYST CONTEXT FOR PROPERTY {comp_id} ---\n"
+    context = f"--- EXECUTIVE ANALYST CONTEXT FOR TENANT {comp_id} ---\n"
     
-    # 1. Casino Performance
     perf = supabase.table("property_performance").select("*").eq("parent_company_id", comp_id).order("record_date", desc=True).limit(30).execute()
-    if perf.data: context += f"\nCASINO LEDGER (30d):\n{pd.DataFrame(perf.data).to_string()}\n"
+    if perf.data: context += f"\nCASINO LEDGER (30d):\n{pd.DataFrame(perf.data).to_string(index=False)}\n"
     
-    # 2. Marketing ROI
     roi = supabase.table("monthly_roi").select("*").eq("parent_company_id", comp_id).order("report_month", desc=True).limit(6).execute()
-    if roi.data: context += f"\nMARKETING ROI MATRIX (6m):\n{pd.DataFrame(roi.data).to_string()}\n"
+    if roi.data: context += f"\nMARKETING ROI MATRIX (6m):\n{pd.DataFrame(roi.data).to_string(index=False)}\n"
     
-    # 3. Sentiment & PR
     sent = supabase.table("sentiment_history").select("*").eq("parent_company_id", comp_id).order("timestamp", desc=True).limit(50).execute()
-    if sent.data: context += f"\nRECENT GUEST SENTIMENT:\n{pd.DataFrame(sent.data).to_string()}\n"
+    if sent.data: context += f"\nRECENT GUEST SENTIMENT:\n{pd.DataFrame(sent.data).to_string(index=False)}\n"
     
-    # 4. PR Scorecard
     pr = supabase.table("pr_scorecard").select("*").eq("parent_company_id", comp_id).order("report_month", desc=True).limit(6).execute()
-    if pr.data: context += f"\nPR SCORECARD:\n{pd.DataFrame(pr.data).to_string()}\n"
+    if pr.data: context += f"\nPR SCORECARD:\n{pd.DataFrame(pr.data).to_string(index=False)}\n"
     
     return context
 
 def ask_ai_advisor(query, comp_id):
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    genai.configure(api_key=st.secrets.get("GEMINI_API_KEY", ""))
     model = genai.GenerativeModel('gemini-2.5-flash')
-    
-    # Hydrate the context
     context = get_omniscient_advisor_context(comp_id)
     
     prompt = f"""
     You are the FloorCast AI Advisor. You have full visibility into the property's operational and marketing data. 
-    Analyze the context provided and provide a data-backed recommendation.
+    Analyze the context provided and provide a data-backed, strategic recommendation.
     
     CONTEXT:
     {context}
@@ -80,9 +73,11 @@ def ask_ai_advisor(query, comp_id):
     
     ADVISOR RECOMMENDATION:
     """
-    
-    response = model.generate_content(prompt)
-    return response.text
+    try:
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"AI Advisor is currently unavailable. Error: {e}"
 
 def get_aggregated_email_analytics(comp_id, s_date, e_date):
     target_uuid = str(comp_id)
@@ -109,21 +104,17 @@ def get_aggregated_email_analytics(comp_id, s_date, e_date):
         total_vol = df['total_emails_delivered'].sum() if 'total_emails_delivered' in df.columns else 0
         
         if total_vol > 0:
-            c_u_opens = get_col(df, ['unique_email_opens', 'unique_opens', 'opens'])
+            c_u_opens = get_col(df, ['unique_email_opens', 'unique_opens', 'opens', 'avg_unique_open_rate'])
             c_t_opens = get_col(df, ['total_email_opens', 'total_opens'])
-            c_bounces = get_col(df, ['total_email_bounces', 'bounces'])
-            c_unsubs = get_col(df, ['unsubscribes', 'unsubscribe_count'])
-            c_open_rate = get_col(df, ['avg_unique_open_rate', 'unique_open_rate', 'open_rate'])
-            c_reads_rate = get_col(df, ['avg_reads_per_unique_open', 'reads_per_open'])
-            c_bounce_rate = get_col(df, ['avg_bounce_rate', 'bounce_rate'])
-            c_unsub_rate = get_col(df, ['avg_unsubscribe_rate', 'unsubscribe_rate'])
+            c_bounces = get_col(df, ['total_email_bounces', 'bounces', 'avg_bounce_rate'])
+            c_unsubs = get_col(df, ['unsubscribes', 'unsubscribe_count', 'avg_unsubscribe_rate'])
 
             m_agg = {
                 'total_emails_delivered': total_vol,
-                'avg_unique_open_rate': (df[c_u_opens].sum() / total_vol) if c_u_opens else (df[c_open_rate].mean() if c_open_rate else 0),
-                'avg_reads_per_unique_open': (df[c_t_opens].sum() / df[c_u_opens].sum()) if c_t_opens and c_u_opens and df[c_u_opens].sum() > 0 else (df[c_reads_rate].mean() if c_reads_rate else 0),
-                'avg_bounce_rate': (df[c_bounces].sum() / total_vol) if c_bounces else (df[c_bounce_rate].mean() if c_bounce_rate else 0),
-                'avg_unsubscribe_rate': (df[c_unsubs].sum() / total_vol) if c_unsubs else (df[c_unsub_rate].mean() if c_unsub_rate else 0)
+                'avg_unique_open_rate': df[c_u_opens].mean() if c_u_opens else 0,
+                'avg_reads_per_unique_open': (df[c_t_opens].sum() / df[c_u_opens].sum()) if c_t_opens and c_u_opens and df[c_u_opens].sum() > 0 else 0,
+                'avg_bounce_rate': df[c_bounces].mean() if c_bounces else 0,
+                'avg_unsubscribe_rate': df[c_unsubs].mean() if c_unsubs else 0
             }
             
         if camp_res.data and m_agg:
@@ -146,21 +137,15 @@ def get_aggregated_email_analytics(comp_id, s_date, e_date):
             p_df = pd.DataFrame(prev_mac_res.data)
             p_vol = p_df['total_emails_delivered'].sum() if 'total_emails_delivered' in p_df.columns else 0
             if p_vol > 0:
-                pc_u_opens = get_col(p_df, ['unique_email_opens', 'unique_opens', 'opens'])
-                pc_t_opens = get_col(p_df, ['total_email_opens', 'total_opens'])
-                pc_bounces = get_col(p_df, ['total_email_bounces', 'bounces'])
-                pc_unsubs = get_col(p_df, ['unsubscribes', 'unsubscribe_count'])
-                pc_open_rate = get_col(p_df, ['avg_unique_open_rate', 'unique_open_rate', 'open_rate'])
-                pc_reads_rate = get_col(p_df, ['avg_reads_per_unique_open', 'reads_per_open'])
-                pc_bounce_rate = get_col(p_df, ['avg_bounce_rate', 'bounce_rate'])
-                pc_unsub_rate = get_col(p_df, ['avg_unsubscribe_rate', 'unsubscribe_rate'])
+                pc_u_opens = get_col(p_df, ['unique_email_opens', 'unique_opens', 'opens', 'avg_unique_open_rate'])
+                pc_bounces = get_col(p_df, ['total_email_bounces', 'bounces', 'avg_bounce_rate'])
+                pc_unsubs = get_col(p_df, ['unsubscribes', 'unsubscribe_count', 'avg_unsubscribe_rate'])
                 
                 prev_m_agg = {
                     'total_emails_delivered': p_vol,
-                    'avg_unique_open_rate': (p_df[pc_u_opens].sum() / p_vol) if pc_u_opens else (p_df[pc_open_rate].mean() if pc_open_rate else 0),
-                    'avg_reads_per_unique_open': (p_df[pc_t_opens].sum() / p_df[pc_u_opens].sum()) if pc_t_opens and pc_u_opens and p_df[pc_u_opens].sum() > 0 else (p_df[pc_reads_rate].mean() if pc_reads_rate else 0),
-                    'avg_bounce_rate': (p_df[pc_bounces].sum() / p_vol) if pc_bounces else (p_df[pc_bounce_rate].mean() if pc_bounce_rate else 0),
-                    'avg_unsubscribe_rate': (p_df[pc_unsubs].sum() / p_vol) if pc_unsubs else (p_df[pc_unsub_rate].mean() if pc_unsub_rate else 0)
+                    'avg_unique_open_rate': p_df[pc_u_opens].mean() if pc_u_opens else 0,
+                    'avg_bounce_rate': p_df[pc_bounces].mean() if pc_bounces else 0,
+                    'avg_unsubscribe_rate': p_df[pc_unsubs].mean() if pc_unsubs else 0
                 }
                 
             prev_earliest = p_df['snapshot_month'].min()
@@ -182,30 +167,45 @@ def get_aggregated_email_analytics(comp_id, s_date, e_date):
         pass
     return m_agg, c_agg, prev_m_agg, prev_c_agg
 
+def archive_sentiment_entry(text, asset_tag, review_date, comp_id):
+    try:
+        genai.configure(api_key=st.secrets.get("GEMINI_API_KEY", ""))
+        model = genai.GenerativeModel('gemini-2.5-flash') 
+        score_prompt = f"Analyze sentiment. Return ONLY a single float between -1.0 and 1.0: {text}"
+        ai_res = model.generate_content(score_prompt)
+        try: sentiment_score = float(ai_res.text.strip())
+        except: sentiment_score = 0.0
+
+        sentiment_category = "Positive" if sentiment_score > 0.3 else "Negative" if sentiment_score < -0.3 else "Neutral"
+        abs_score = abs(sentiment_score)
+        intensity_level = "Extreme" if abs_score >= 0.8 else "Moderate" if abs_score >= 0.4 else "Low"
+
+        payload = {
+            "message_id": str(uuid.uuid4()),
+            "parent_company_id": comp_id,
+            "asset": asset_tag,
+            "sentiment_score": sentiment_score,
+            "sentiment_category": sentiment_category,
+            "intensity_level": intensity_level,
+            "raw_text": text,
+            "timestamp": review_date.strftime("%Y-%m-%dT12:00:00")
+        }
+        supabase.table("sentiment_history").insert(payload).execute()
+        return True
+    except Exception as e:
+        st.error(f"Archival Sync Error: {e}. Check Gemini API Key.")
+        return False
+
+# ==========================================
+# MAIN RENDER FUNCTION
+# ==========================================
 def render():
     profile = st.session_state.user_profile
     user_role = profile.get('global_role', 'User')
 
-if "show_ai_hub" not in st.session_state: st.session_state.show_ai_hub = False
+    if "show_ai_hub" not in st.session_state: st.session_state.show_ai_hub = False
 
-@st.dialog("FloorCast AI Advisor", width="large")
-def ai_hub_modal():
-    st.markdown("### 🤖 Ask the Advisor")
-    query = st.text_input("What would you like to analyze?", placeholder="e.g., Why did revenue drop despite high ad spend?")
-    if st.button("Generate Strategy"):
-        if query:
-            with st.spinner("Analyzing cross-module data..."):
-                response = ask_ai_advisor(query, comp_id)
-                st.markdown(response)
-
-# --- TRIGGER LOGIC ---
-if st.session_state.show_ai_hub:
-    ai_hub_modal()
-    # Logic to reset show_ai_hub state after closing
-
-    # ==========================================
-    # 1. FETCH CLIENT CONTEXT & SUBSCRIPTIONS
-    # ==========================================
+    # --- 1. FETCH CLIENT CONTEXT & SUBSCRIPTIONS ---
     try:
         access_res = supabase.table("user_property_access").select("parent_company_id, parent_companies(company_name, total_owed)").eq("user_email", profile['email']).execute()
         if not access_res.data:
@@ -231,9 +231,27 @@ if st.session_state.show_ai_hub:
         st.error(f"Failed to load workspace data: {e}")
         return
 
-    # ==========================================
-    # 2. GLOBAL DATA FETCH
-    # ==========================================
+    # --- 2. AI ADVISOR MODAL (Scope-Safe) ---
+    @st.dialog("FloorCast AI Advisor", width="large")
+    def ai_hub_modal():
+        st.markdown(f"### 🤖 Ask the Advisor ({comp_name})")
+        st.caption("The AI has full context of your latest Casino, Marketing, PR, and Sentiment data.")
+        query = st.text_input("What would you like to analyze?", placeholder="e.g., Why did revenue drop despite high ad spend?")
+        
+        if st.button("Generate Strategy", type="primary"):
+            if query:
+                with st.spinner("Analyzing cross-module data..."):
+                    response = ask_ai_advisor(query, comp_id)
+                    st.markdown(response)
+        
+        if st.button("Close Advisor"):
+            st.session_state.show_ai_hub = False
+            st.rerun()
+
+    if st.session_state.show_ai_hub:
+        ai_hub_modal()
+
+    # --- 3. GLOBAL DATA FETCH ---
     try:
         perf_res = supabase.table("property_performance").select("*").eq("parent_company_id", comp_id).order("record_date", desc=True).execute()
         if perf_res.data:
@@ -268,13 +286,17 @@ if st.session_state.show_ai_hub:
         except Exception as e:
             st.error(f"Save failed: {e}")
 
-    # ==========================================
-    # 3. TOP NAVIGATION BAR
-    # ==========================================
-    nav_c1, nav_c2, nav_c3 = st.columns([6, 2, 1])
+    # --- 4. TOP NAVIGATION BAR ---
+    nav_c1, nav_c2, nav_c3, nav_c4 = st.columns([5, 2, 1, 1])
     with nav_c1: st.markdown(f"<h3 style='margin-top: 10px; color:#111827;'>🎰 FloorCast OS <span style='color: #6B7280; font-weight: 400; font-size: 1.2rem;'>| {comp_name}</span></h3>", unsafe_allow_html=True)
     with nav_c2: st.markdown(f"<p style='margin-top: 15px; color:#6B7280; font-size: 0.9rem; text-align: right;'>👤 {profile.get('first_name', '')} ({user_role})</p>", unsafe_allow_html=True)
     with nav_c3:
+        st.markdown('<div class="ghost-btn">', unsafe_allow_html=True)
+        if st.button("🤖 AI Hub", use_container_width=True):
+            st.session_state.show_ai_hub = True
+            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+    with nav_c4:
         st.markdown('<div class="ghost-btn">', unsafe_allow_html=True)
         if st.button("Sign Out", use_container_width=True):
             st.session_state.clear()
@@ -282,9 +304,7 @@ if st.session_state.show_ai_hub:
         st.markdown('</div>', unsafe_allow_html=True)
     st.divider()
 
-    # ==========================================
-    # 4. DYNAMIC TAB GENERATOR
-    # ==========================================
+    # --- 5. DYNAMIC TAB GENERATOR ---
     tab_titles = ["📊 Master Overview"]
     if "Core AI & Marketing" in active_modules: 
         tab_titles.extend(["🎰 Casino", "📈 Marketing", "📋 Reports"])
@@ -376,6 +396,33 @@ if st.session_state.show_ai_hub:
                                 st.success("✅ Ledger Corrections Synchronized."); time.sleep(1.5); st.rerun()
                             except Exception as e: st.error(f"Sync failed: {e}")
 
+            st.divider()
+            st.markdown("#### 🔮 Predictive Scenario Simulator")
+            st.caption("Forecast future floor traffic based on seasonal physics and weather friction.")
+            with st.container(border=True):
+                sc1, sc2, sc3 = st.columns(3)
+                with sc1:
+                    sim_season = st.selectbox("Season", ["Winter", "Spring", "Summer", "Autumn", "Peak"])
+                    sim_rain = st.slider("Rain (mm)", 0, 50, 0, key="sim_rn")
+                with sc2:
+                    sim_event = st.number_input("Event Attendance", value=0, step=500, key="sim_ev")
+                    sim_snow = st.slider("Snow (cm)", 0, 30, 0, key="sim_sn")
+                with sc3:
+                    test_lift_pct = st.number_input("Apply Proven Exp Lift %", value=0.0, step=0.5)
+
+                if st.button("🚀 Run Seasonal Projection", use_container_width=True):
+                    seasonal_base = 1500 * {"Winter": 0.85, "Spring": 1.05, "Summer": 1.15, "Autumn": 1.20, "Peak": 1.35}.get(sim_season, 1.0)
+                    gravity_lift = sim_event * 0.25
+                    friction = (sim_rain * -12) + (sim_snow * -45)
+                    test_impact = seasonal_base * (test_lift_pct / 100)
+                    proj_guests = max(0, seasonal_base + gravity_lift + friction + test_impact)
+                    
+                    st.divider()
+                    r1, r2, r3 = st.columns(3)
+                    r1.metric("Seasonal Base", f"{seasonal_base:,.0f}")
+                    r2.metric("Gravity Lift & Friction", f"{(gravity_lift + friction):,.0f}")
+                    r3.metric("AI Traffic Projection", f"{proj_guests:,.0f}", delta=f"{test_impact:+.0f} from Lift")
+
         current_tab_index += 1
 
         # --- TAB 3: MARKETING ---
@@ -430,6 +477,34 @@ if st.session_state.show_ai_hub:
                             }).execute()
                             st.success(f"Successfully vaulted BL-ROAS for {selected_month.strftime('%B %Y')}"); st.rerun()
                         except Exception as e: st.error(f"Error saving ROI data: {e}")
+
+                try:
+                    roi_res = supabase.table("monthly_roi").select("*").eq("parent_company_id", comp_id).order("report_month", desc=True).execute()
+                    if roi_res.data:
+                        df_roi = pd.DataFrame(roi_res.data)
+                        curr_row = df_roi.iloc[0]
+                        prop_potential = ledger_coin_in + (ledger_signups * LTV_BENCHMARK)
+                        
+                        report_text = f"""{pd.to_datetime(curr_row['report_month']).strftime('%B %Y')} ROAS Results | {comp_name}
+--------------------------------------------------
+BRAND HEALTH PERFORMANCE
+BL-ROAS = {curr_row['calculated_bl_roas']:.2f}x
+Measured Brand Value Generated: ${curr_row['brand_value']:,.2f}
+
+ATTRIBUTED REVENUE IMPACT (ESTIMATED)
+• 10% Attribution: ${(prop_potential * 0.1):,.0f}
+• 20% Attribution: ${(prop_potential * 0.2):,.0f}
+• 30% Attribution: ${(prop_potential * 0.3):,.0f}
+
+ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
+                        
+                        st.markdown("##### 📄 Executive Summary (SharePoint Ready)")
+                        st.text_area("Audit Output Clip:", value=report_text, height=220)
+
+                        st.markdown("##### 📜 Audit History")
+                        st.dataframe(df_roi[['report_month', 'ad_spend', 'calculated_bl_roas', 'brand_value', 'enhanced_revenue']], use_container_width=True, hide_index=True)
+                except Exception as e:
+                    pass
 
             with mkt_tabs[1]:
                 if has_data and not df_perf.empty:
@@ -507,7 +582,7 @@ if st.session_state.show_ai_hub:
                         
                         accuracy = (1 - (abs(t_traf - t_pred) / t_traf)) * 100 if t_traf > 0 else 0
 
-                        # DYNAMIC MoM PERCENTAGE LAYER (Placeholders for SaaS Dashboard layout logic)
+                        # DYNAMIC MoM PERCENTAGE LAYER 
                         mom_traf_pct, mom_rev_pct, mom_clicks_pct = "+4.8%", "+6.1%", "-1.4%"
                         mom_mems_pct, mom_reach_pct, mom_acc_pct = "+3.9%", "+8.2%", "+0.5%"
                         mom_reach_earned, mom_placements, mom_halo_pct, mom_variance_pct = "+11.4%", "+5.0%", "+7.1%", "-3.2%"
@@ -649,13 +724,98 @@ if st.session_state.show_ai_hub:
                         
         current_tab_index += 1
 
-    # --- OTHER MODULES ---
+    # --- TAB 5: BRAND & SENTIMENT ---
     if "Brand & Sentiment Premium" in active_modules:
         with tabs[current_tab_index]:
             st.markdown("### 📢 Brand Integrity & Sentiment Vault")
-            st.info("Brand tracking active.")
+            bs_tabs = st.tabs(["📝 PR Scorecard", "🧠 Guest Sentiment Vault"])
+            
+            with bs_tabs[0]:
+                pr_res = supabase.table("pr_scorecard").select("*").eq("parent_company_id", comp_id).order("report_month", desc=True).execute()
+                df_pr = pd.DataFrame(pr_res.data) if pr_res.data else pd.DataFrame()
+                
+                with st.expander("📝 Log Monthly PR Metrics", expanded=df_pr.empty):
+                    with st.form("pr_entry_form", clear_on_submit=True):
+                        f1, f2, f3 = st.columns(3)
+                        m_date = f1.date_input("Report Month", value=date.today().replace(day=1))
+                        m_imp = f2.number_input("Earned Impressions", min_value=0, step=1000)
+                        m_ment = f3.number_input("Earned Mentions", min_value=0, step=1)
+                        m_mediums = st.text_input("Primary Mediums (e.g., CTV News, Ottawa Citizen)")
+                        m_comment = st.text_area("Executive Summary")
+                        if st.form_submit_button("Vault PR Entry", use_container_width=True):
+                            supabase.table("pr_scorecard").upsert({"parent_company_id": comp_id, "report_month": m_date.strftime("%Y-%m-%d"), "earned_impressions": m_imp, "earned_mentions": m_ment, "mediums": m_mediums, "executive_summary": m_comment}).execute()
+                            st.rerun()
+
+                if not df_pr.empty:
+                    df_pr['report_month'] = pd.to_datetime(df_pr['report_month'])
+                    st.divider()
+                    fig_pr = go.Figure()
+                    df_chart = df_pr.sort_values('report_month')
+                    fig_pr.add_trace(go.Scatter(x=df_chart['report_month'], y=df_chart['earned_impressions'], name="Impressions", line=dict(color='#2563EB', width=4), yaxis="y"))
+                    fig_pr.add_trace(go.Bar(x=df_chart['report_month'], y=df_chart['earned_mentions'], name="Mentions", marker_color='rgba(200, 200, 200, 0.3)', yaxis="y2"))
+                    fig_pr.update_layout(height=350, template="plotly_white", margin=dict(l=0, r=0, t=10, b=0), yaxis2=dict(overlaying="y", side="right"), legend=dict(orientation="h", yanchor="bottom", y=1.02))
+                    st.plotly_chart(fig_pr, use_container_width=True)
+
+            with bs_tabs[1]:
+                tags = ["Overall Property", "Casino Floor", "Hotel Room", "Restaurant", "Entertainment"]
+                col_i1, col_i2 = st.columns(2)
+                
+                with col_i1:
+                    with st.expander("📝 Manual Sentiment Archival", expanded=True):
+                        with st.form("manual_sentiment_form", clear_on_submit=True):
+                            manual_tag = st.selectbox("Assign to Asset:", tags)
+                            manual_date = st.date_input("Review Date:", value=date.today())
+                            f_text = st.text_area("Review Content", placeholder="Paste review text...", height=100)
+                            if st.form_submit_button("🛡️ Archive & AI Score", use_container_width=True):
+                                if f_text and archive_sentiment_entry(f_text, manual_tag, manual_date, comp_id):
+                                    st.rerun()
+
+                with col_i2:
+                    with st.expander("📄 DOCX Intelligence Loader (Legacy)", expanded=True):
+                        st.caption("Upload raw feedback exports to auto-score via Gemini AI.")
+                        uploaded_doc = st.file_uploader("Upload .docx Source", type="docx")
+                        bulk_tag = st.selectbox("Bulk Assign:", tags, key="b_tag")
+                        bulk_date = st.date_input("Bulk Review Date:", value=date.today(), key="b_date")
+                        if uploaded_doc and st.button("🚀 Execute Bulk Parse", use_container_width=True):
+                            try:
+                                from docx import Document
+                                doc = Document(uploaded_doc)
+                                valid_paras = [p.text.strip() for p in doc.paragraphs if len(p.text.strip()) > 20]
+                                if valid_paras:
+                                    bar = st.progress(0)
+                                    success = 0
+                                    for idx, text in enumerate(valid_paras):
+                                        if archive_sentiment_entry(text, bulk_tag, bulk_date, comp_id): success += 1
+                                        bar.progress((idx + 1) / len(valid_paras))
+                                        time.sleep(1.5)
+                                    st.success(f"{success} entries scored & vaulted.")
+                            except Exception as e:
+                                st.error("Requires python-docx installed. Or verify API limits.")
+
+                st.divider()
+                s_res = supabase.table("sentiment_history").select("*").eq("parent_company_id", comp_id).order("timestamp", desc=True).execute()
+                if s_res.data:
+                    df_vault = pd.DataFrame(s_res.data)
+                    sc1, sc2, sc3 = st.columns(3)
+                    sc1.metric("Total Vault Volume", f"{len(df_vault):,} Records")
+                    sc2.metric("Positive Sentiments", f"{len(df_vault[df_vault['sentiment_category'] == 'Positive']):,}")
+                    sc3.metric("Critical Sentiments", f"{len(df_vault[df_vault['sentiment_category'] == 'Negative']):,}", delta_color="inverse")
+                    
+                    st.markdown("#### 🔍 Recent AI-Scored Reviews")
+                    for _, row in df_vault.head(10).iterrows():
+                        with st.container(border=True):
+                            c1, c2 = st.columns([4, 1])
+                            c1.markdown(f"**Asset:** `{row.get('asset')}` | **Category:** {row.get('sentiment_category')}")
+                            c1.write(row.get('raw_text'))
+                            score = float(row.get('sentiment_score', 0))
+                            color = "#EF4444" if score < -0.3 else "#10B981" if score > 0.3 else "#F59E0B"
+                            c2.metric("AI Score", f"{score:.2f}")
+                            c2.markdown(f"<div style='height:8px; width:100%; background:{color}; border-radius:4px;'></div>", unsafe_allow_html=True)
+                else:
+                    st.info("No sentiment data vaulted yet.")
         current_tab_index += 1
 
+    # --- TAB 6: HOTEL ENGINE ---
     if "Hotel Premium" in active_modules:
         with tabs[current_tab_index]:
             st.markdown("### 🏨 Hotel Revenue Engine")
@@ -667,6 +827,7 @@ if st.session_state.show_ai_hub:
                 if st.form_submit_button("Save Hotel Data", type="primary"): save_daily_log(entry_date, {"rooms_sold": m_rooms, "adr": m_adr})
         current_tab_index += 1
 
+    # --- TAB 7: F&B ENGINE ---
     if "F&B Premium" in active_modules:
         with tabs[current_tab_index]:
             st.markdown("### 🍔 F&B Operational Engine")
@@ -678,6 +839,7 @@ if st.session_state.show_ai_hub:
                 if st.form_submit_button("Save F&B Data", type="primary"): save_daily_log(entry_date, {"fb_covers": m_covers, "fb_revenue": m_fbrev})
         current_tab_index += 1
 
+    # --- TAB 8: ENTERTAINMENT ENGINE ---
     if "Entertainment Premium" in active_modules:
         with tabs[current_tab_index]:
             st.markdown("### 🎫 Entertainment Engine")
@@ -689,7 +851,7 @@ if st.session_state.show_ai_hub:
                 if st.form_submit_button("Save Entertainment Data", type="primary"): save_daily_log(entry_date, {"tickets_sold": m_tix, "ent_revenue": m_entrev})
         current_tab_index += 1
 
-    # --- TAB: SETTINGS ---
+    # --- TAB 9: SETTINGS ---
     with tabs[-1]:
         st.markdown("### ⚙️ Account Management & Settings")
         with st.expander("💳 Billing & Active Subscriptions", expanded=True):
@@ -725,3 +887,15 @@ if st.session_state.show_ai_hub:
                                 supabase.table("property_performance").upsert(records).execute()
                                 st.success("Master Ledger Updated!"); time.sleep(1.5); st.rerun()
                         except Exception as e: st.error(f"Upload failed: {e}")
+
+        missing_modules = [m for m in all_modules.keys() if m not in active_modules]
+        if missing_modules:
+            st.divider()
+            st.markdown("#### 🚀 Upgrade Center")
+            upsell_cols = st.columns(len(missing_modules) if len(missing_modules) < 4 else 3)
+            for i, mod_name in enumerate(missing_modules):
+                with upsell_cols[i % 3]:
+                    st.markdown(f"<div style='background-color: #F8FAFC; padding: 1.5rem; border-radius: 8px; border: 1px solid #E2E8F0; margin-bottom: 15px;'><h5 style='margin-top: 0; color: #0F172A;'>🔒 {mod_name}</h5><p style='color: #64748B; font-size: 0.9rem;'>{all_modules[mod_name]['description']}</p></div>", unsafe_allow_html=True)
+                    if st.button(f"Request Activation", key=f"req_{mod_name}", type="secondary", use_container_width=True):
+                        supabase.table("module_requests").insert({"parent_company_id": comp_id, "module_name": mod_name, "requested_by": profile['email']}).execute()
+                        st.success(f"Request sent! We will contact you regarding {mod_name}.")
