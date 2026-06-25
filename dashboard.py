@@ -338,13 +338,22 @@ def render():
     else:
         # --- THE MAIN DASHBOARD VIEW ---
         
-        # The Omni-Search Bar that triggers the Chat Page
+        # The Omni-Search Bar with clear CTA
         st.markdown("#### 🤖 Ask FloorCast AI")
-        initial_query = st.text_input("Analyze your databases:", placeholder="e.g. Why did table drop fall during the car promotion?", label_visibility="collapsed")
-        if initial_query:
-            st.session_state.chat_history.append({"role": "user", "content": initial_query})
-            st.session_state.active_view = "ai_chat"
-            st.rerun()
+        
+        with st.form("ai_search_cta", border=False):
+            sc1, sc2 = st.columns([5, 1])
+            initial_query = sc1.text_input(
+                "Analyze your databases:", 
+                placeholder="e.g. Why did table drop fall during the car promotion?", 
+                label_visibility="collapsed"
+            )
+            submit_ai = sc2.form_submit_button("Analyze 🚀", type="primary", use_container_width=True)
+            
+            if submit_ai and initial_query:
+                st.session_state.chat_history.append({"role": "user", "content": initial_query})
+                st.session_state.active_view = "ai_chat"
+                st.rerun()
             
         st.write("") # Spacer
         
