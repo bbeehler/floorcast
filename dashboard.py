@@ -12,14 +12,6 @@ from dateutil.relativedelta import relativedelta
 import calendar
 
 # ==========================================
-# STATE INITIALIZATION
-# ==========================================
-if "active_view" not in st.session_state:
-    st.session_state.active_view = "dashboard"
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
-
-# ==========================================
 # LEGACY CALCULATION & AI ENGINES
 # ==========================================
 def get_forensic_metrics(df_input, coeffs):
@@ -69,7 +61,6 @@ def ask_ai_advisor(query, comp_id, chat_history):
     model = genai.GenerativeModel('gemini-2.5-flash')
     context = get_omniscient_advisor_context(comp_id)
     
-    # Compile previous chat history for continuous dialogue
     history_text = "\n".join([f"{msg['role'].upper()}: {msg['content']}" for msg in chat_history[:-1]])
     
     prompt = f"""
@@ -145,7 +136,6 @@ def get_aggregated_email_analytics(comp_id, s_date, e_date):
                         'pct_of_total_emails_sent': group['pct_of_total_emails_sent'].mean() if 'pct_of_total_emails_sent' in df_c.columns else 0
                     })
 
-        # PREVIOUS PERIOD MATCHING
         prev_mac_res = supabase.table("monthly_email_snapshots").select("*").eq("parent_company_id", target_uuid).lt("snapshot_month", earliest_current).order("snapshot_month", desc=True).limit(num_months).execute()
         if prev_mac_res.data:
             p_df = pd.DataFrame(prev_mac_res.data)
@@ -217,11 +207,8 @@ def render():
     profile = st.session_state.user_profile
     user_role = profile.get('global_role', 'User')
 
-    # State toggle for the AI Hub
-    if "active_view" not in st.session_state:
-        st.session_state.active_view = "dashboard"
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
+    if "active_view" not in st.session_state: st.session_state.active_view = "dashboard"
+    if "chat_history" not in st.session_state: st.session_state.chat_history = []
 
     # --- 1. FETCH CLIENT CONTEXT & SUBSCRIPTIONS ---
     try:
@@ -254,7 +241,7 @@ def render():
         perf_res = supabase.table("property_performance").select("*").eq("parent_company_id", comp_id).order("record_date", desc=True).execute()
         if perf_res.data:
             df_perf = pd.DataFrame(perf_res.data)
-            for col in ['coin_in', 'table_drop', 'marketing_spend', 'actual_traffic', 'ad_clicks', 'attendance']:
+            for col in ['coin_in', 'table_drop', 'marketing_spend', 'actual_traffic', 'ad_clicks', 'attendance', 'rooms_sold', 'adr', 'fb_covers', 'fb_revenue', 'tickets_sold', 'ent_revenue']:
                 if col in df_perf.columns: df_perf[col] = pd.to_numeric(df_perf[col], errors='coerce').fillna(0)
             total_coin_in = df_perf['coin_in'].sum() if 'coin_in' in df_perf.columns else 0.0
             total_table_drop = df_perf['table_drop'].sum() if 'table_drop' in df_perf.columns else 0.0
@@ -303,7 +290,6 @@ def render():
     # VIEW ROUTING: CHAT vs DASHBOARD
     # ==========================================
     if st.session_state.active_view == "ai_chat":
-        # --- THE FULL-PAGE AI CHAT INTERFACE ---
         c_back, c_title = st.columns([1, 6])
         with c_back:
             if st.button("⬅️ Back", use_container_width=True):
@@ -315,12 +301,10 @@ def render():
         st.caption("I am fully hydrated with your recent Casino Ledgers, Marketing ROI, PR reach, and Guest Sentiment logs. Ask me anything.")
         st.divider()
         
-        # 1. Render all past messages
         for msg in st.session_state.chat_history:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
                 
-        # 2. If the last message was from the user, generate the AI response
         if st.session_state.chat_history and st.session_state.chat_history[-1]["role"] == "user":
             with st.chat_message("assistant"):
                 with st.spinner("Analyzing operational and marketing data databases..."):
@@ -330,24 +314,15 @@ def render():
                     st.session_state.chat_history.append({"role": "assistant", "content": response})
                     st.rerun()
                     
-        # 3. Continued Dialogue Input
         if new_query := st.chat_input("Ask a follow-up question..."):
             st.session_state.chat_history.append({"role": "user", "content": new_query})
             st.rerun()
 
     else:
-        # --- THE MAIN DASHBOARD VIEW ---
-        
-        # The Omni-Search Bar with clear CTA
         st.markdown("#### 🤖 Ask FloorCast AI")
-        
         with st.form("ai_search_cta", border=False):
             sc1, sc2 = st.columns([5, 1])
-            initial_query = sc1.text_input(
-                "Analyze your databases:", 
-                placeholder="e.g. Why did table drop fall during the car promotion?", 
-                label_visibility="collapsed"
-            )
+            initial_query = sc1.text_input("Analyze your databases:", placeholder="e.g. Why did table drop fall during the car promotion?", label_visibility="collapsed")
             submit_ai = sc2.form_submit_button("Analyze 🚀", type="primary", use_container_width=True)
             
             if submit_ai and initial_query:
@@ -355,7 +330,7 @@ def render():
                 st.session_state.active_view = "ai_chat"
                 st.rerun()
             
-        st.write("") # Spacer
+        st.write("")
         
         # --- DYNAMIC TAB GENERATOR ---
         tab_titles = ["📊 Master Overview"]
@@ -850,40 +825,141 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                                 c2.markdown(f"<div style='height:8px; width:100%; background:{color}; border-radius:4px;'></div>", unsafe_allow_html=True)
             current_tab_index += 1
 
-        # --- TAB 6: HOTEL ENGINE ---
+        # --- TAB 6: HOTEL ENGINE (UPGRADED) ---
         if "Hotel Premium" in active_modules:
             with tabs[current_tab_index]:
                 st.markdown("### 🏨 Hotel Revenue Engine")
-                with st.form("hotel_entry_form"):
-                    entry_date = st.date_input("Reporting Date", value=date.today() - timedelta(days=1), key="d_hot")
-                    hc1, hc2 = st.columns(2)
-                    m_rooms = hc1.number_input("Rooms Sold", min_value=0, step=1)
-                    m_adr = hc2.number_input("Average Daily Rate (ADR $)", min_value=0.0, step=10.0)
-                    if st.form_submit_button("Save Hotel Data", type="primary"): save_daily_log(entry_date, {"rooms_sold": m_rooms, "adr": m_adr})
+                
+                with st.expander("✍️ Log Daily Hotel Ledger", expanded=False):
+                    with st.form("hotel_entry_form"):
+                        entry_date = st.date_input("Reporting Date", value=date.today() - timedelta(days=1), key="d_hot")
+                        hc1, hc2 = st.columns(2)
+                        m_rooms = hc1.number_input("Rooms Sold", min_value=0, step=1)
+                        m_adr = hc2.number_input("Average Daily Rate (ADR $)", min_value=0.0, step=10.0)
+                        if st.form_submit_button("Save Hotel Data", type="primary", use_container_width=True): 
+                            save_daily_log(entry_date, {"rooms_sold": m_rooms, "adr": m_adr})
+
+                st.divider()
+                TOTAL_ROOMS = st.number_input("⚙️ Total Available Rooms Base (For Pacing Calibration)", value=300, step=50, help="Adjust to your property's physical room count.")
+                
+                if has_data and 'rooms_sold' in df_perf.columns:
+                    df_hotel = df_perf[df_perf['rooms_sold'] > 0].copy()
+                    if not df_hotel.empty:
+                        df_hotel['record_date'] = pd.to_datetime(df_hotel['record_date'])
+                        df_hotel = df_hotel.sort_values('record_date')
+                        
+                        df_hotel['occupancy'] = (df_hotel['rooms_sold'] / TOTAL_ROOMS) * 100
+                        df_hotel['revpar'] = df_hotel['adr'] * (df_hotel['rooms_sold'] / TOTAL_ROOMS)
+                        
+                        avg_occ = df_hotel['occupancy'].mean()
+                        avg_adr = df_hotel['adr'].mean()
+                        avg_revpar = df_hotel['revpar'].mean()
+                        
+                        st.markdown("#### 📈 Pacing & Yield Physics")
+                        h1, h2, h3 = st.columns(3)
+                        h1.metric("Average Occupancy", f"{avg_occ:.1f}%")
+                        h2.metric("Average ADR", f"${avg_adr:.2f}")
+                        h3.metric("Calculated RevPAR", f"${avg_revpar:.2f}")
+                        
+                        fig_hotel = go.Figure()
+                        fig_hotel.add_trace(go.Bar(x=df_hotel['record_date'], y=df_hotel['occupancy'], name="Occupancy %", yaxis='y1', marker_color='rgba(37, 99, 235, 0.4)'))
+                        fig_hotel.add_trace(go.Scatter(x=df_hotel['record_date'], y=df_hotel['adr'], name="ADR ($)", mode='lines+markers', yaxis='y2', line=dict(color='#F59E0B', width=3)))
+                        fig_hotel.update_layout(
+                            height=400, template="plotly_white", margin=dict(l=0, r=0, t=20, b=0),
+                            yaxis=dict(title='Occupancy %', side='left', showgrid=False),
+                            yaxis2=dict(title='ADR ($)', overlaying='y', side='right', showgrid=False),
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02)
+                        )
+                        st.plotly_chart(fig_hotel, use_container_width=True)
+                    else:
+                        st.info("Log your daily rooms sold to generate yield physics.")
             current_tab_index += 1
 
-        # --- TAB 7: F&B ENGINE ---
+        # --- TAB 7: F&B ENGINE (UPGRADED) ---
         if "F&B Premium" in active_modules:
             with tabs[current_tab_index]:
                 st.markdown("### 🍔 F&B Operational Engine")
-                with st.form("fb_entry_form"):
-                    entry_date = st.date_input("Reporting Date", value=date.today() - timedelta(days=1), key="d_fb")
-                    fc1, fc2 = st.columns(2)
-                    m_covers = fc1.number_input("Total Covers", min_value=0, step=1)
-                    m_fbrev = fc2.number_input("Gross F&B Revenue ($)", min_value=0.0, step=500.0)
-                    if st.form_submit_button("Save F&B Data", type="primary"): save_daily_log(entry_date, {"fb_covers": m_covers, "fb_revenue": m_fbrev})
+                
+                with st.expander("✍️ Log Daily F&B Ledger", expanded=False):
+                    with st.form("fb_entry_form"):
+                        entry_date = st.date_input("Reporting Date", value=date.today() - timedelta(days=1), key="d_fb")
+                        fc1, fc2 = st.columns(2)
+                        m_covers = fc1.number_input("Total Covers", min_value=0, step=1)
+                        m_fbrev = fc2.number_input("Gross F&B Revenue ($)", min_value=0.0, step=500.0)
+                        if st.form_submit_button("Save F&B Data", type="primary", use_container_width=True): 
+                            save_daily_log(entry_date, {"fb_covers": m_covers, "fb_revenue": m_fbrev})
+
+                st.divider()
+                if has_data and 'fb_covers' in df_perf.columns and 'actual_traffic' in df_perf.columns:
+                    df_fb = df_perf[df_perf['fb_covers'] > 0].copy()
+                    if not df_fb.empty:
+                        total_traffic_for_calc = df_fb['actual_traffic'].sum()
+                        total_covers_for_calc = df_fb['fb_covers'].sum()
+                        
+                        capture_rate = (total_covers_for_calc / total_traffic_for_calc * 100) if total_traffic_for_calc > 0 else 0
+                        avg_check = (df_fb['fb_revenue'].sum() / total_covers_for_calc) if total_covers_for_calc > 0 else 0
+                        
+                        st.markdown("#### 🔄 The 'Halo Effect' (Traffic to Covers Matrix)")
+                        f1, f2, f3 = st.columns(3)
+                        f1.metric("Average Check", f"${avg_check:.2f}")
+                        f2.metric("Casino Capture Rate", f"{capture_rate:.1f}%", help="Percentage of Casino Foot Traffic that dines on-property.")
+                        f3.metric("Total Covers Logged", f"{total_covers_for_calc:,.0f}")
+                        
+                        # Interactive Cover Forecaster
+                        st.markdown("##### 🔮 Interactive Cover Forecaster")
+                        st.caption("Input forecasted casino traffic to dynamically predict kitchen demand based on your historical capture rate.")
+                        est_traffic = st.number_input("Expected Casino Footfall:", value=int(df_fb['actual_traffic'].mean() if len(df_fb) > 0 else 5000), step=500)
+                        pred_covers = est_traffic * (capture_rate / 100)
+                        pred_rev = pred_covers * avg_check
+                        st.success(f"**Predicted Kitchen Demand:** {pred_covers:,.0f} Covers ➡️ **Est. Gross:** ${pred_rev:,.0f}")
+                        
+                        st.write("")
+                        fig_fb = px.scatter(df_fb, x='actual_traffic', y='fb_covers', size='fb_revenue', color='fb_revenue', hover_data=['record_date'], title="Correlation: Casino Traffic vs F&B Covers", color_continuous_scale="Viridis")
+                        fig_fb.update_layout(height=350, template="plotly_white", margin=dict(l=10, r=10, t=30, b=10))
+                        st.plotly_chart(fig_fb, use_container_width=True)
+                    else:
+                        st.info("Log your daily F&B covers to build the predictive Halo matrix.")
             current_tab_index += 1
 
-        # --- TAB 8: ENTERTAINMENT ENGINE ---
+        # --- TAB 8: ENTERTAINMENT ENGINE (UPGRADED) ---
         if "Entertainment Premium" in active_modules:
             with tabs[current_tab_index]:
                 st.markdown("### 🎫 Entertainment Engine")
-                with st.form("ent_entry_form"):
-                    entry_date = st.date_input("Reporting Date", value=date.today() - timedelta(days=1), key="d_ent")
-                    ec1, ec2 = st.columns(2)
-                    m_tix = ec1.number_input("Tickets Scanned", min_value=0, step=1)
-                    m_entrev = ec2.number_input("Box Office Revenue ($)", min_value=0.0, step=500.0)
-                    if st.form_submit_button("Save Entertainment Data", type="primary"): save_daily_log(entry_date, {"tickets_sold": m_tix, "ent_revenue": m_entrev})
+                
+                with st.expander("✍️ Log Daily Entertainment Ledger", expanded=False):
+                    with st.form("ent_entry_form"):
+                        entry_date = st.date_input("Reporting Date", value=date.today() - timedelta(days=1), key="d_ent")
+                        ec1, ec2 = st.columns(2)
+                        m_tix = ec1.number_input("Tickets Scanned", min_value=0, step=1)
+                        m_entrev = ec2.number_input("Box Office Revenue ($)", min_value=0.0, step=500.0)
+                        if st.form_submit_button("Save Entertainment Data", type="primary", use_container_width=True): 
+                            save_daily_log(entry_date, {"tickets_sold": m_tix, "ent_revenue": m_entrev})
+
+                st.divider()
+                if has_data and 'tickets_sold' in df_perf.columns:
+                    df_ent = df_perf[df_perf['tickets_sold'] > 0].copy()
+                    if not df_ent.empty:
+                        avg_tix = df_ent['tickets_sold'].mean()
+                        avg_box = df_ent['ent_revenue'].mean()
+                        
+                        # Compare event days to non-event days in Casino metrics
+                        df_no_ent = df_perf[df_perf['tickets_sold'] <= 0]
+                        avg_coin_event = df_ent['coin_in'].mean()
+                        avg_coin_no_event = df_no_ent['coin_in'].mean() if not df_no_ent.empty else 0
+                        indirect_lift = avg_coin_event - avg_coin_no_event
+                        
+                        st.markdown("#### 🎸 Event Lift Matrix")
+                        e1, e2, e3 = st.columns(3)
+                        e1.metric("Average Box Office", f"${avg_box:,.0f}")
+                        e2.metric("Average Tickets Scanned", f"{avg_tix:,.0f}")
+                        e3.metric("Indirect Floor Lift (Avg)", f"${indirect_lift:,.0f}", help="Difference in average Casino Coin-In between Event Days and Non-Event Days.")
+                        
+                        fig_ent = go.Figure()
+                        fig_ent.add_trace(go.Bar(x=['Non-Event Day Avg', 'Event Day Avg'], y=[avg_coin_no_event, avg_coin_event], marker_color=['#94A3B8', '#10B981']))
+                        fig_ent.update_layout(title="Casino Coin-In Impact Comparison", height=350, template="plotly_white", margin=dict(l=10, r=10, t=30, b=10))
+                        st.plotly_chart(fig_ent, use_container_width=True)
+                    else:
+                        st.info("Log your scanned tickets to reveal indirect floor lift.")
             current_tab_index += 1
 
         # --- TAB 9: SETTINGS ---
