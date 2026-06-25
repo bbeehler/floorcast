@@ -149,6 +149,20 @@ def archive_sentiment_entry(text, asset_tag, review_date, comp_id):
         return True
     except: return False
 
+def get_calibrated_forecast(comp_id, module_key, base_value, sensitivity_list):
+    """
+    Fetches stored coefficients from property_calibration 
+    to adjust base projections dynamically.
+    """
+    cal_res = supabase.table("property_calibration").select("coefficient_name, value").eq("parent_company_id", comp_id).eq("module_key", module_key).execute()
+    cal_map = {c['coefficient_name']: float(c['value']) for c in cal_res.data}
+    
+    # Adjust base_value by applying listed sensitivities
+    forecast = base_value
+    for key in sensitivity_list:
+        forecast *= cal_map.get(key, 1.0)
+    return forecast
+
 # ==========================================
 # MAIN RENDER FUNCTION
 # ==========================================
@@ -779,3 +793,24 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                         if st.form_submit_button("Process Data", type="primary") and dash_file:
                             # bulk processing logic maintained
                             st.success("Uploaded!")
+                            st.markdown("### ⚙️ Calibration Control Panel")
+            st.caption("Adjust AI coefficients to calibrate predictive models for your specific property.")
+    
+                modules = ["casino_weather", "fb_capture", "hotel_yield"]
+                selected_mod = st.selectbox("Select Module to Calibrate:", modules)
+    
+            # Fetch existing
+                cals = supabase.table("property_calibration").select("*").eq("parent_company_id", comp_id).eq("module_key", selected_mod).execute()
+                df_cals = pd.DataFrame(cals.data)
+    
+                    if not df_cals.empty:
+                        with st.form("cal_form"):
+                            new_vals = {}
+                        for _, row in df_cals.iterrows():
+                            new_vals[row['id']] = st.number_input(f"{row['coefficient_name']}", value=float(row['value']), step=0.01)
+            
+                    if st.form_submit_button("Update Coefficients"):
+                        for id, val in new_vals.items():
+                            supabase.table("property_calibration").update({"value": val}).eq("id", id).execute()
+                        st.success("Calibration updated.")
+                        st.rerun()
