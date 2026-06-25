@@ -217,6 +217,12 @@ def render():
     profile = st.session_state.user_profile
     user_role = profile.get('global_role', 'User')
 
+    # State toggle for the AI Hub
+    if "active_view" not in st.session_state:
+        st.session_state.active_view = "dashboard"
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+
     # --- 1. FETCH CLIENT CONTEXT & SUBSCRIPTIONS ---
     try:
         access_res = supabase.table("user_property_access").select("parent_company_id, parent_companies(company_name, total_owed)").eq("user_email", profile['email']).execute()
