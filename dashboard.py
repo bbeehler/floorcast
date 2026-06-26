@@ -166,20 +166,19 @@ def archive_sentiment_entry(text, asset_tag, review_date, comp_id):
         return True
     except: return False
 
-# ==========================================
-# STATE INITIALIZATION (BULLTPROOF)
-# ==========================================
-def initialize_session_state():
-    if "active_view" not in st.session_state:
-        st.session_state.active_view = "dashboard"
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
-    # Added this to prevent the attribute error when fetching user profile
-    if "user_profile" not in st.session_state:
-        st.session_state.user_profile = {}
-
-# Run this once at the very start
-initialize_session_state()
+def save_property_calibrations(comp_id, calibrations):
+    try:
+        existing = supabase.table("property_calibrations").select("id").eq("parent_company_id", comp_id).execute()
+        ex_data = safe_get_data(existing)
+        if ex_data:
+            supabase.table("property_calibrations").update({"calibrations": calibrations}).eq("parent_company_id", comp_id).execute()
+        else:
+            supabase.table("property_calibrations").insert({"parent_company_id": comp_id, "calibrations": calibrations}).execute()
+        st.success("Calibrations saved.")
+        return True
+    except Exception as e:
+        st.error(f"Failed to save calibrations: {e}")
+        return False
 
 # ==========================================
 # MAIN RENDER FUNCTION
@@ -277,9 +276,8 @@ def render():
                 payload["record_date"] = str(entry_date)
                 res = supabase.table("property_performance").insert(payload).execute()
             
-            # 3. VERIFICATION STEP
-            # If the response 'data' is empty after an insert/update, it means RLS blocked the write.
-            if not res.data:
+            # 3. VERIFICATION STEP — a None .data attribute (not an empty list) signals RLS blocked the write
+            if not hasattr(res, 'data') and not isinstance(res, dict):
                 st.error("🚨 DATABASE BLOCKED WRITE: Your Row Level Security (RLS) policy is preventing this insert. Please check your SQL policies.")
                 return
                 
@@ -583,6 +581,8 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                             exp_dict = {e['test_name']: e for e in ev_data}
                             sel_exp = st.selectbox("Select Active Experiment:", list(exp_dict.keys()))
                             tag_a, tag_b = exp_dict[sel_exp]['version_a_tag'], exp_dict[sel_exp]['version_b_tag']
+                            if 'experiment_tag' not in df_perf.columns:
+                                df_perf['experiment_tag'] = ''
                             df_perf['experiment_tag'] = df_perf['experiment_tag'].astype(str).str.strip()
                             df_a, df_b = df_perf[df_perf['experiment_tag'] == tag_a], df_perf[df_perf['experiment_tag'] == tag_b]
                             if not df_a.empty and not df_b.empty:
