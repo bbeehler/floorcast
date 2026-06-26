@@ -20,44 +20,79 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 # ==========================================
+# CALIBRATION ENGINE
+# ==========================================
+def get_property_calibrations(comp_id):
+    """Loads the property's unique AI tuning coefficients, falling back to industry defaults."""
+    default_cals = {
+        'mon_base': 4000.0, 'tue_base': 3800.0, 'wed_base': 4200.0, 'thu_base': 4800.0,
+        'fri_base': 6500.0, 'sat_base': 7200.0, 'sun_base': 5500.0,
+        'avg_coin_in': 115.0, 'avg_table_drop': 45.0,
+        'ad_click_lift': 0.05, 'promo_lift': 500.0,
+        'rain_penalty': -12.0, 'snow_penalty': -45.0,
+        'fb_capture_pct': 15.0, 'fb_avg_check': 45.0,
+        'hotel_capture_pct': 5.0, 'hotel_base_adr': 189.0
+    }
+    try:
+        res = supabase.table("property_calibrations").select("calibrations").eq("parent_company_id", comp_id).execute()
+        if res.data and res.data[0].get('calibrations'):
+            default_cals.update(res.data[0]['calibrations'])
+    except Exception:
+        pass
+    return default_cals
+
+def save_property_calibrations(comp_id, new_cals):
+    try:
+        supabase.table("property_calibrations").upsert({
+            "parent_company_id": comp_id,
+            "calibrations": new_cals
+        }).execute()
+        return True
+    except Exception as e:
+        st.error(f"Failed to save calibrations: {e}")
+        return False
+
+# ==========================================
 # LEGACY CALCULATION & AI ENGINES
 # ==========================================
-def get_forensic_metrics(df_input, coeffs):
+def get_forensic_metrics(df_input, cals):
     if not df_input: return {"df": pd.DataFrame()}
     df = pd.DataFrame(df_input).copy()
     df['record_date'] = pd.to_datetime(df['record_date'])
     
-    # 1. Base Heartbeat
-    hb = {d: float(coeffs.get(f'{d[:3]}_Base', 5000)) for d in ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']}
+    # 1. Base Heartbeat (Calibrated)
+    hb = {'Monday': cals['mon_base'], 'Tuesday': cals['tue_base'], 'Wednesday': cals['wed_base'], 
+          'Thursday': cals['thu_base'], 'Friday': cals['fri_base'], 'Saturday': cals['sat_base'], 'Sunday': cals['sun_base']}
     df['baseline'] = df['record_date'].dt.day_name().map(hb).astype(float)
     
-    # 2. Marketing Decay
-    dec, c1, c2 = float(coeffs.get('Ad_Decay', 85))/100, float(coeffs.get('Clicks', 0.05)), float(coeffs.get('Social_Imp', 0.0002))
+    # 2. Marketing Decay (Calibrated)
+    dec, c1, c2 = 0.85, cals['ad_click_lift'], 0.0002
     pool, lift = 0.0, []
     for _, r in df.iterrows():
         pool = ((float(r.get('ad_clicks', 0) or 0)*c1) + (float(r.get('ad_impressions', 0) or 0)*c2)) + (pool * dec)
         lift.append(pool)
     df['residual_lift'] = lift
     
-    # 3. Expected Traffic Synthesis
+    # 3. Expected Traffic Synthesis (Calibrated)
     if 'predicted_traffic' in df.columns:
-        fallback_calc = df['baseline'] + df['residual_lift'] + float(coeffs.get('Promo', 500.0))
+        fallback_calc = df['baseline'] + df['residual_lift'] + float(cals['promo_lift'])
         df['expected'] = pd.to_numeric(df['predicted_traffic'], errors='coerce').fillna(fallback_calc)
         df['predicted_traffic'] = df['expected']
     else:
-        df['predicted_traffic'] = df['baseline'] + df['residual_lift'] + float(coeffs.get('Promo', 500.0))
+        df['predicted_traffic'] = df['baseline'] + df['residual_lift'] + float(cals['promo_lift'])
         
     return {"df": df}
 
-def generate_forward_forecast(df_historical, days=14):
+def generate_forward_forecast(df_historical, cals, days=14):
     """Generates a pure future predictive dataframe based on historical averages and decay."""
     if df_historical.empty: return pd.DataFrame()
     last_date = df_historical['record_date'].max()
     future_dates = [last_date + timedelta(days=i) for i in range(1, days+1)]
     df_future = pd.DataFrame({'record_date': future_dates})
     
-    # Apply baseline physics
-    hb = {'Monday': 4000, 'Tuesday': 3800, 'Wednesday': 4200, 'Thursday': 4800, 'Friday': 6500, 'Saturday': 7200, 'Sunday': 5500}
+    # Apply baseline physics (Calibrated)
+    hb = {'Monday': cals['mon_base'], 'Tuesday': cals['tue_base'], 'Wednesday': cals['wed_base'], 
+          'Thursday': cals['thu_base'], 'Friday': cals['fri_base'], 'Saturday': cals['sat_base'], 'Sunday': cals['sun_base']}
     df_future['baseline'] = df_future['record_date'].dt.day_name().map(hb).astype(float)
     
     # Carry over active decay momentum
@@ -70,6 +105,11 @@ def generate_forward_forecast(df_historical, days=14):
     
     df_future['residual_lift'] = future_lift
     df_future['predicted_traffic'] = df_future['baseline'] + df_future['residual_lift']
+    
+    # Financial Predictions based on Calibration
+    df_future['predicted_coin_in'] = df_future['predicted_traffic'] * cals['avg_coin_in']
+    df_future['predicted_table_drop'] = df_future['predicted_traffic'] * cals['avg_table_drop']
+    
     return df_future
 
 def get_omniscient_advisor_context(comp_id):
@@ -118,6 +158,11 @@ def get_aggregated_email_analytics(comp_id, s_date, e_date):
     end_str = e_date.replace(day=last_day).strftime("%Y-%m-%d")
     m_agg, c_agg, prev_m_agg, prev_c_agg = {}, [], {}, []
     try:
+        def get_col(df_target, candidates):
+            for c in candidates:
+                if c in df_target.columns: return c
+            return None
+
         mac_res = supabase.table("monthly_email_snapshots").select("*").eq("parent_company_id", target_uuid).gte("snapshot_month", start_str).lte("snapshot_month", end_str).order("snapshot_month", desc=True).execute()
         if not mac_res.data: return m_agg, c_agg, prev_m_agg, prev_c_agg
         df = pd.DataFrame(mac_res.data)
@@ -175,6 +220,9 @@ def render():
         active_subs_details = [{"Module": s['system_modules']['module_name'], "Price": float(s['agreed_price']), "Frequency": s['billing_frequency']} for s in subs_res.data] if subs_res.data else []
         inv_res = supabase.table("invoices").select("*").eq("parent_company_id", comp_id).eq("status", "Pending").execute()
         pending_invoices = inv_res.data if inv_res.data else []
+        
+        # Load unique AI Calibrations
+        cals = get_property_calibrations(comp_id)
     except Exception as e:
         st.error(f"Failed to load workspace data: {e}")
         return
@@ -187,13 +235,12 @@ def render():
             for col in ['coin_in', 'table_drop', 'marketing_spend', 'actual_traffic', 'ad_clicks', 'attendance', 'rooms_sold', 'adr', 'fb_covers', 'fb_revenue', 'tickets_sold', 'ent_revenue']:
                 if col in df_perf.columns: df_perf[col] = pd.to_numeric(df_perf[col], errors='coerce').fillna(0)
             
-            # Global Application of the Forecasting Engine
-            coeffs = {'Promo': 500.0, 'Ad_Decay': 85, 'Clicks': 0.05, 'Social_Imp': 0.0002}
-            m = get_forensic_metrics(df_perf.to_dict(orient='records'), coeffs)
+            # Global Application of the Forecasting Engine (CALIBRATED)
+            m = get_forensic_metrics(df_perf.to_dict(orient='records'), cals)
             df_perf = m['df']
             
-            # Generate the true Forward Look
-            df_forward = generate_forward_forecast(df_perf, days=14)
+            # Generate the true Forward Look (CALIBRATED)
+            df_forward = generate_forward_forecast(df_perf, cals, days=14)
             
             total_coin_in = df_perf['coin_in'].sum()
             total_table_drop = df_perf['table_drop'].sum()
@@ -297,19 +344,23 @@ def render():
 
             if has_data and not df_forward.empty:
                 st.divider()
-                st.markdown("#### 🔮 14-Day Traffic Forecast")
-                st.caption("AI projection based on current momentum, marketing decay, and baseline day-of-week physics.")
-                fig_forecast = go.Figure()
+                st.markdown("#### 🔮 14-Day Traffic & Revenue Forecast")
+                st.caption("AI projection based on your custom property calibrations, momentum, and decay.")
                 
-                # Show last 7 days actuals
-                recent_actuals = df_perf.tail(7)
-                fig_forecast.add_trace(go.Scatter(x=recent_actuals['record_date'], y=recent_actuals['actual_traffic'], name="Historical Actuals", line=dict(color='#94A3B8', width=3)))
-                
-                # Show next 14 days predicted
-                fig_forecast.add_trace(go.Scatter(x=df_forward['record_date'], y=df_forward['predicted_traffic'], name="AI Forward Prediction", line=dict(color='#2563EB', width=4, dash='dash')))
-                
-                fig_forecast.update_layout(height=350, template="plotly_white", margin=dict(l=10, r=10, t=10, b=10))
-                st.plotly_chart(fig_forecast, use_container_width=True)
+                f_col1, f_col2 = st.columns(2)
+                with f_col1:
+                    fig_forecast = go.Figure()
+                    recent_actuals = df_perf.tail(7)
+                    fig_forecast.add_trace(go.Scatter(x=recent_actuals['record_date'], y=recent_actuals['actual_traffic'], name="Historical Actuals", line=dict(color='#94A3B8', width=3)))
+                    fig_forecast.add_trace(go.Scatter(x=df_forward['record_date'], y=df_forward['predicted_traffic'], name="AI Forward Prediction", line=dict(color='#2563EB', width=4, dash='dash')))
+                    fig_forecast.update_layout(title="Foot Traffic Projection", height=300, template="plotly_white", margin=dict(l=10, r=10, t=30, b=10))
+                    st.plotly_chart(fig_forecast, use_container_width=True)
+                with f_col2:
+                    fig_fin = go.Figure()
+                    fig_fin.add_trace(go.Scatter(x=df_forward['record_date'], y=df_forward['predicted_coin_in'], name="Projected Coin-In", line=dict(color='#10B981', width=3)))
+                    fig_fin.add_trace(go.Scatter(x=df_forward['record_date'], y=df_forward['predicted_table_drop'], name="Projected Table Drop", line=dict(color='#F59E0B', width=3)))
+                    fig_fin.update_layout(title="Revenue Projection", height=300, template="plotly_white", margin=dict(l=10, r=10, t=30, b=10))
+                    st.plotly_chart(fig_fin, use_container_width=True)
 
         # --- THE CORE SUITE ---
         current_tab_index = 1
@@ -383,25 +434,30 @@ def render():
                 with st.container(border=True):
                     sc1, sc2, sc3 = st.columns(3)
                     with sc1:
-                        sim_season = st.selectbox("Season", ["Winter", "Spring", "Summer", "Autumn", "Peak"])
+                        sim_season = st.selectbox("Day of Week", ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"])
                         sim_rain = st.slider("Rain (mm)", 0, 50, 0, key="sim_rn")
                     with sc2:
                         sim_event = st.number_input("Event Attendance", value=0, step=500, key="sim_ev")
                         sim_snow = st.slider("Snow (cm)", 0, 30, 0, key="sim_sn")
                     with sc3:
-                        test_lift_pct = st.number_input("Apply Proven Exp Lift %", value=0.0, step=0.5)
+                        test_promo_lift = st.number_input("Add Custom Promo Lift", value=0.0, step=100.0)
 
                     if st.button("🚀 Run Scenario Projection", use_container_width=True):
-                        seasonal_base = 1500 * {"Winter": 0.85, "Spring": 1.05, "Summer": 1.15, "Autumn": 1.20, "Peak": 1.35}.get(sim_season, 1.0)
+                        base_map = {
+                            "Monday": cals['mon_base'], "Tuesday": cals['tue_base'], "Wednesday": cals['wed_base'], 
+                            "Thursday": cals['thu_base'], "Friday": cals['fri_base'], "Saturday": cals['sat_base'], "Sunday": cals['sun_base']
+                        }
+                        base_traffic = base_map.get(sim_season, cals['mon_base'])
+                        
                         gravity_lift = sim_event * 0.25
-                        friction = (sim_rain * -12) + (sim_snow * -45)
-                        test_impact = seasonal_base * (test_lift_pct / 100)
-                        proj_guests = max(0, seasonal_base + gravity_lift + friction + test_impact)
+                        friction = (sim_rain * cals['rain_penalty']) + (sim_snow * cals['snow_penalty'])
+                        proj_guests = max(0, base_traffic + gravity_lift + friction + test_promo_lift)
+                        
                         st.divider()
                         r1, r2, r3 = st.columns(3)
-                        r1.metric("Seasonal Base", f"{seasonal_base:,.0f}")
-                        r2.metric("Gravity Lift & Friction", f"{(gravity_lift + friction):,.0f}")
-                        r3.metric("AI Scenario Projection", f"{proj_guests:,.0f}", delta=f"{test_impact:+.0f} from Lift")
+                        r1.metric("Projected Traffic", f"{proj_guests:,.0f}")
+                        r2.metric("Projected Coin-In", f"${(proj_guests * cals['avg_coin_in']):,.0f}")
+                        r3.metric("Projected Table Drop", f"${(proj_guests * cals['avg_table_drop']):,.0f}")
 
             current_tab_index += 1
 
@@ -671,13 +727,9 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                         # Hotel Predictive Forward Forecast
                         if not df_forward.empty:
                             st.markdown("#### 🔮 14-Day Predictive Hotel Occupancy")
-                            st.caption("Forecasted room demand based on projected casino floor gravity.")
-                            # Derive hotel conversion rate
-                            historical_avg_traffic = df_perf['actual_traffic'].mean() if df_perf['actual_traffic'].mean() > 0 else 1
-                            hotel_capture_rate = df_hotel['rooms_sold'].mean() / historical_avg_traffic
-                            
+                            st.caption("Forecasted room demand based on projected casino floor gravity and your custom calibration settings.")
                             df_hotel_fwd = df_forward.copy()
-                            df_hotel_fwd['predicted_rooms'] = df_hotel_fwd['predicted_traffic'] * hotel_capture_rate
+                            df_hotel_fwd['predicted_rooms'] = df_hotel_fwd['predicted_traffic'] * (cals['hotel_capture_pct'] / 100)
                             df_hotel_fwd['predicted_occ'] = (df_hotel_fwd['predicted_rooms'] / TOTAL_ROOMS) * 100
                             
                             fig_hotel_fwd = px.bar(df_hotel_fwd, x='record_date', y='predicted_occ', text_auto='.1f', title="Forecasted Occupancy %")
@@ -714,9 +766,9 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                         # F&B Predictive Forward Forecast
                         if not df_forward.empty:
                             st.markdown("#### 🔮 14-Day Predictive Kitchen Demand")
-                            st.caption("Forecasted restaurant covers based on upcoming projected casino footfall.")
+                            st.caption("Forecasted restaurant covers based on upcoming projected casino footfall and your custom calibration settings.")
                             df_fb_fwd = df_forward.copy()
-                            df_fb_fwd['predicted_covers'] = df_fb_fwd['predicted_traffic'] * (capture_rate / 100)
+                            df_fb_fwd['predicted_covers'] = df_fb_fwd['predicted_traffic'] * (cals['fb_capture_pct'] / 100)
                             
                             fig_fb_fwd = px.line(df_fb_fwd, x='record_date', y='predicted_covers', markers=True, title="Forecasted F&B Covers")
                             fig_fb_fwd.update_traces(line=dict(color='#F59E0B', width=3))
@@ -760,7 +812,57 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
         # --- TAB 9: SETTINGS ---
         with tabs[-1]:
             st.markdown("### ⚙️ Account Management & Settings")
-            with st.expander("💳 Billing & Active Subscriptions", expanded=True):
+            
+            # --- NEW CALIBRATION ENGINE UI ---
+            with st.expander("🎛️ AI Predictive Calibration Engine", expanded=True):
+                st.caption("Adjust the specific coefficients the AI uses to forecast your property's performance.")
+                
+                with st.form("calibration_form"):
+                    cal_tabs = st.tabs(["🎰 Casino & Traffic", "🏨 Hotel Engine", "🍔 F&B Engine"])
+                    
+                    with cal_tabs[0]:
+                        st.markdown("##### Base Traffic by Day")
+                        b1, b2, b3, b4 = st.columns(4)
+                        new_mon = b1.number_input("Monday", value=float(cals['mon_base']), step=100.0)
+                        new_tue = b2.number_input("Tuesday", value=float(cals['tue_base']), step=100.0)
+                        new_wed = b3.number_input("Wednesday", value=float(cals['wed_base']), step=100.0)
+                        new_thu = b4.number_input("Thursday", value=float(cals['thu_base']), step=100.0)
+                        b5, b6, b7, _ = st.columns(4)
+                        new_fri = b5.number_input("Friday", value=float(cals['fri_base']), step=100.0)
+                        new_sat = b6.number_input("Saturday", value=float(cals['sat_base']), step=100.0)
+                        new_sun = b7.number_input("Sunday", value=float(cals['sun_base']), step=100.0)
+                        
+                        st.markdown("##### Spend & Environment")
+                        e1, e2, e3 = st.columns(3)
+                        new_coin = e1.number_input("Avg Coin-In / Guest ($)", value=float(cals['avg_coin_in']), step=5.0)
+                        new_drop = e2.number_input("Avg Table Drop / Guest ($)", value=float(cals['avg_table_drop']), step=5.0)
+                        new_rain = e3.number_input("Rain Penalty (Per mm)", value=float(cals['rain_penalty']), step=1.0)
+                        
+                    with cal_tabs[1]:
+                        st.markdown("##### Hotel Integration")
+                        h1, h2 = st.columns(2)
+                        new_h_cap = h1.number_input("Casino Traffic Capture Rate (%)", value=float(cals['hotel_capture_pct']), step=0.5)
+                        new_h_adr = h2.number_input("Base ADR ($)", value=float(cals['hotel_base_adr']), step=5.0)
+                        
+                    with cal_tabs[2]:
+                        st.markdown("##### F&B Integration")
+                        f1, f2 = st.columns(2)
+                        new_fb_cap = f1.number_input("Dining Capture Rate (%)", value=float(cals['fb_capture_pct']), step=1.0)
+                        new_fb_check = f2.number_input("Average Check ($)", value=float(cals['fb_avg_check']), step=1.0)
+
+                    if st.form_submit_button("💾 Save Calibrations to Vault", type="primary", use_container_width=True):
+                        updated_cals = cals.copy()
+                        updated_cals.update({
+                            'mon_base': new_mon, 'tue_base': new_tue, 'wed_base': new_wed, 'thu_base': new_thu,
+                            'fri_base': new_fri, 'sat_base': new_sat, 'sun_base': new_sun,
+                            'avg_coin_in': new_coin, 'avg_table_drop': new_drop, 'rain_penalty': new_rain,
+                            'hotel_capture_pct': new_h_cap, 'hotel_base_adr': new_h_adr,
+                            'fb_capture_pct': new_fb_cap, 'fb_avg_check': new_fb_check
+                        })
+                        if save_property_calibrations(comp_id, updated_cals):
+                            st.rerun()
+
+            with st.expander("💳 Billing & Active Subscriptions", expanded=False):
                 b_col1, b_col2 = st.columns(2)
                 with b_col1:
                     st.markdown("##### Your Active Modules")
@@ -777,5 +879,13 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                     with st.form("bulk_upload_form"):
                         dash_file = st.file_uploader("Drop CSV", type=["csv"], label_visibility="collapsed")
                         if st.form_submit_button("Process Data", type="primary") and dash_file:
-                            # bulk processing logic maintained
-                            st.success("Uploaded!")
+                            try:
+                                df_new = pd.read_csv(dash_file)
+                                df_new.columns = df_new.columns.str.strip().str.lower().str.replace(' ', '_')
+                                for col in df_new.columns:
+                                    if col not in ['date', 'active_promo', 'experiment_tag']: df_new[col] = df_new[col].replace('[\$,]', '', regex=True).astype(float)
+                                records = [{"parent_company_id": comp_id, "record_date": str(row['date']), **{c: row[c] for c in ['coin_in', 'table_drop', 'marketing_spend', 'actual_traffic', 'new_members', 'attendance', 'ad_clicks', 'ad_impressions', 'active_promo', 'experiment_tag', 'rain_mm', 'snow_cm', 'rooms_sold', 'adr', 'fb_covers', 'fb_revenue', 'tickets_sold', 'ent_revenue'] if c in df_new.columns}} for _, row in df_new.iterrows() if 'date' in df_new.columns and pd.notna(row['date'])]
+                                if records:
+                                    supabase.table("property_performance").upsert(records).execute()
+                                    st.success("Master Ledger Updated!"); time.sleep(1.5); st.rerun()
+                            except Exception as e: st.error(f"Upload failed: {e}")
