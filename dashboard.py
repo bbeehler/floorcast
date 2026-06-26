@@ -123,21 +123,102 @@ def ask_ai_advisor(query, comp_id, chat_history):
     except Exception as e:
         return f"AI Advisor is currently unavailable. Error: {e}"
 
-def get_aggregated_email_analytics(comp_id, s_date, e_date):
-    target_uuid = str(comp_id)
+def get_aggregated_email_analytics(property_id, s_date, e_date):
+    target_uuid = str(property_id)
     start_str = s_date.replace(day=1).strftime("%Y-%m-%d")
     last_day = calendar.monthrange(e_date.year, e_date.month)[1]
     end_str = e_date.replace(day=last_day).strftime("%Y-%m-%d")
     m_agg, c_agg, prev_m_agg, prev_c_agg = {}, [], {}, []
+
+    def get_col(df_target, candidates):
+        for c in candidates:
+            if c in df_target.columns: return c
+        return None
+
     try:
-        mac_res = supabase.table("monthly_email_snapshots").select("*").eq("parent_company_id", target_uuid).gte("snapshot_month", start_str).lte("snapshot_month", end_str).order("snapshot_month", desc=True).execute()
+        mac_res = supabase.table("monthly_email_snapshots").select("*").eq("property_id", target_uuid).gte("snapshot_month", start_str).lte("snapshot_month", end_str).order("snapshot_month", desc=True).execute()
+        camp_res = supabase.table("campaign_group_records").select("*").eq("property_id", target_uuid).gte("snapshot_month", start_str).lte("snapshot_month", end_str).execute()
         mac_data = safe_get_data(mac_res)
         if not mac_data: return m_agg, c_agg, prev_m_agg, prev_c_agg
+
         df = pd.DataFrame(mac_data)
+        num_months_selected = len(df)
+        earliest_current = df['snapshot_month'].min()
         total_vol = df['total_emails_delivered'].sum() if 'total_emails_delivered' in df.columns else 0
+
         if total_vol > 0:
-            m_agg = {'total_emails_delivered': total_vol, 'avg_unique_open_rate': df.get('avg_unique_open_rate', df.get('open_rate', pd.Series([0]))).mean(), 'avg_bounce_rate': df.get('avg_bounce_rate', pd.Series([0])).mean(), 'avg_unsubscribe_rate': df.get('avg_unsubscribe_rate', pd.Series([0])).mean()}
-    except Exception: pass
+            c_u_opens = get_col(df, ['unique_email_opens', 'unique_opens', 'opens'])
+            c_t_opens = get_col(df, ['total_email_opens', 'total_opens'])
+            c_bounces = get_col(df, ['total_email_bounces', 'bounces'])
+            c_unsubs  = get_col(df, ['unsubscribes', 'unsubscribe_count'])
+            c_open_rate   = get_col(df, ['avg_unique_open_rate', 'unique_open_rate', 'open_rate'])
+            c_reads_rate  = get_col(df, ['avg_reads_per_unique_open', 'reads_per_open'])
+            c_bounce_rate = get_col(df, ['avg_bounce_rate', 'bounce_rate'])
+            c_unsub_rate  = get_col(df, ['avg_unsubscribe_rate', 'unsubscribe_rate'])
+            m_agg = {
+                'total_emails_delivered': total_vol,
+                'avg_unique_open_rate': (df[c_u_opens].sum() / total_vol) if c_u_opens else (df[c_open_rate].mean() if c_open_rate else 0),
+                'avg_reads_per_unique_open': (df[c_t_opens].sum() / df[c_u_opens].sum()) if (c_t_opens and c_u_opens and df[c_u_opens].sum() > 0) else (df[c_reads_rate].mean() if c_reads_rate else 0),
+                'avg_bounce_rate': (df[c_bounces].sum() / total_vol) if c_bounces else (df[c_bounce_rate].mean() if c_bounce_rate else 0),
+                'avg_unsubscribe_rate': (df[c_unsubs].sum() / total_vol) if c_unsubs else (df[c_unsub_rate].mean() if c_unsub_rate else 0),
+            }
+
+        camp_data = safe_get_data(camp_res)
+        if camp_data and m_agg:
+            df_c = pd.DataFrame(camp_data)
+            if 'campaign_group_name' in df_c.columns:
+                c_c_open  = get_col(df_c, ['avg_unique_open_rate', 'open_rate'])
+                c_c_click = get_col(df_c, ['avg_unique_click_rate', 'click_rate'])
+                for camp_name, group in df_c.groupby('campaign_group_name'):
+                    c_agg.append({
+                        'campaign_group_name': camp_name,
+                        'emails_delivered': group['emails_delivered'].sum() if 'emails_delivered' in df_c.columns else 0,
+                        'avg_unique_open_rate': group[c_c_open].mean() if c_c_open else 0,
+                        'avg_unique_click_rate': group[c_c_click].mean() if c_c_click else 0,
+                        'pct_of_total_emails_sent': group['pct_of_total_emails_sent'].mean() if 'pct_of_total_emails_sent' in df_c.columns else 0,
+                    })
+
+        # Previous period (same number of months immediately before)
+        prev_mac_res = supabase.table("monthly_email_snapshots").select("*").eq("property_id", target_uuid).lt("snapshot_month", earliest_current).order("snapshot_month", desc=True).limit(num_months_selected).execute()
+        prev_mac_data = safe_get_data(prev_mac_res)
+        if prev_mac_data:
+            p_df = pd.DataFrame(prev_mac_data)
+            p_vol = p_df['total_emails_delivered'].sum() if 'total_emails_delivered' in p_df.columns else 0
+            if p_vol > 0:
+                pc_u_opens    = get_col(p_df, ['unique_email_opens', 'unique_opens', 'opens'])
+                pc_t_opens    = get_col(p_df, ['total_email_opens', 'total_opens'])
+                pc_bounces    = get_col(p_df, ['total_email_bounces', 'bounces'])
+                pc_unsubs     = get_col(p_df, ['unsubscribes', 'unsubscribe_count'])
+                pc_open_rate  = get_col(p_df, ['avg_unique_open_rate', 'unique_open_rate', 'open_rate'])
+                pc_reads_rate = get_col(p_df, ['avg_reads_per_unique_open', 'reads_per_open'])
+                pc_bounce_rate= get_col(p_df, ['avg_bounce_rate', 'bounce_rate'])
+                pc_unsub_rate = get_col(p_df, ['avg_unsubscribe_rate', 'unsubscribe_rate'])
+                prev_m_agg = {
+                    'total_emails_delivered': p_vol,
+                    'avg_unique_open_rate': (p_df[pc_u_opens].sum() / p_vol) if pc_u_opens else (p_df[pc_open_rate].mean() if pc_open_rate else 0),
+                    'avg_reads_per_unique_open': (p_df[pc_t_opens].sum() / p_df[pc_u_opens].sum()) if (pc_t_opens and pc_u_opens and p_df[pc_u_opens].sum() > 0) else (p_df[pc_reads_rate].mean() if pc_reads_rate else 0),
+                    'avg_bounce_rate': (p_df[pc_bounces].sum() / p_vol) if pc_bounces else (p_df[pc_bounce_rate].mean() if pc_bounce_rate else 0),
+                    'avg_unsubscribe_rate': (p_df[pc_unsubs].sum() / p_vol) if pc_unsubs else (p_df[pc_unsub_rate].mean() if pc_unsub_rate else 0),
+                }
+            prev_earliest = p_df['snapshot_month'].min()
+            prev_latest   = p_df['snapshot_month'].max()
+            prev_camp_res  = supabase.table("campaign_group_records").select("*").eq("property_id", target_uuid).gte("snapshot_month", prev_earliest).lte("snapshot_month", prev_latest).execute()
+            prev_camp_data = safe_get_data(prev_camp_res)
+            if prev_camp_data:
+                p_df_c = pd.DataFrame(prev_camp_data)
+                if 'campaign_group_name' in p_df_c.columns:
+                    p_c_open  = get_col(p_df_c, ['avg_unique_open_rate', 'open_rate'])
+                    p_c_click = get_col(p_df_c, ['avg_unique_click_rate', 'click_rate'])
+                    for camp_name, group in p_df_c.groupby('campaign_group_name'):
+                        prev_c_agg.append({
+                            'campaign_group_name': camp_name,
+                            'emails_delivered': group['emails_delivered'].sum() if 'emails_delivered' in p_df_c.columns else 0,
+                            'avg_unique_open_rate': group[p_c_open].mean() if p_c_open else 0,
+                            'avg_unique_click_rate': group[p_c_click].mean() if p_c_click else 0,
+                        })
+    except Exception as e:
+        st.sidebar.caption(f"Email aggregation error: {e}")
+
     return m_agg, c_agg, prev_m_agg, prev_c_agg
 
 def archive_sentiment_entry(text, asset_tag, review_date, comp_id):
@@ -190,13 +271,14 @@ def render():
 
     # --- 1. FETCH CLIENT CONTEXT & CALIBRATIONS ---
     try:
-        access_res = supabase.table("user_property_access").select("parent_company_id, parent_companies(company_name, total_owed)").eq("user_email", profile.get('email', '')).execute()
+        access_res = supabase.table("user_property_access").select("parent_company_id, property_id, parent_companies(company_name, total_owed)").eq("user_email", profile.get('email', '')).execute()
         access_data = safe_get_data(access_res)
         if not access_data:
             st.error("No company link found. Contact Support.")
             return
-        
+
         comp_id = access_data[0]['parent_company_id']
+        property_id = access_data[0].get('property_id')
         comp_name = access_data[0]['parent_companies']['company_name']
         comp_owed = float(access_data[0]['parent_companies']['total_owed'] or 0.0)
 
@@ -635,6 +717,56 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                             fig_stack.update_layout(height=400, template="plotly_white", margin=dict(l=10, r=10, t=10, b=10))
                             st.plotly_chart(fig_stack, use_container_width=True)
                             
+                            st.divider()
+                            st.markdown("### 📨 Email Performance & Distribution Audit")
+                            if property_id:
+                                macro_email, campaign_list, prev_email, prev_campaigns = get_aggregated_email_analytics(property_id, s_date, e_date)
+                                if macro_email and macro_email.get('total_emails_delivered', 0) > 0:
+                                    safe_prev = prev_email if isinstance(prev_email, dict) else {}
+                                    deliv_d, open_d, reads_d, bounce_d, unsub_d = "---", "---", "---", "---", "---"
+                                    if safe_prev and safe_prev.get('total_emails_delivered', 0) > 0:
+                                        curr_v, prev_v = float(macro_email['total_emails_delivered']), float(safe_prev['total_emails_delivered'])
+                                        deliv_d  = f"{((curr_v - prev_v) / prev_v * 100):+.1f}% PoP"
+                                        open_d   = f"{(float(macro_email.get('avg_unique_open_rate', 0)) - float(safe_prev.get('avg_unique_open_rate', 0))) * 100:+.2f}% PoP"
+                                        reads_d  = f"{float(macro_email.get('avg_reads_per_unique_open', 0)) - float(safe_prev.get('avg_reads_per_unique_open', 0)):+.2f} PoP"
+                                        bounce_d = f"{(float(macro_email.get('avg_bounce_rate', 0)) - float(safe_prev.get('avg_bounce_rate', 0))) * 100:+.2f}% PoP"
+                                        unsub_d  = f"{(float(macro_email.get('avg_unsubscribe_rate', 0)) - float(safe_prev.get('avg_unsubscribe_rate', 0))) * 100:+.2f}% PoP"
+                                    ec1, ec2, ec3, ec4, ec5 = st.columns(5)
+                                    ec1.metric("Emails Delivered", f"{macro_email['total_emails_delivered']:,}", delta=deliv_d)
+                                    ec2.metric("Unique Open Rate", f"{float(macro_email.get('avg_unique_open_rate', 0)) * 100:.2f}%", delta=open_d)
+                                    ec3.metric("Reads / Unique Open", f"{macro_email.get('avg_reads_per_unique_open', 0):.2f}", delta=reads_d)
+                                    ec4.metric("Avg Bounce Rate", f"{float(macro_email.get('avg_bounce_rate', 0)) * 100:.2f}%", delta=bounce_d, delta_color="inverse")
+                                    ec5.metric("Unsubscribe Rate", f"{float(macro_email.get('avg_unsubscribe_rate', 0)) * 100:.2f}%", delta=unsub_d, delta_color="inverse")
+                                    if campaign_list:
+                                        with st.expander("🎯 Campaign Group Breakdown", expanded=True):
+                                            safe_prev_camps = prev_campaigns if isinstance(prev_campaigns, list) else []
+                                            prev_camp_dict = {c['campaign_group_name']: c for c in safe_prev_camps}
+                                            table_rows = []
+                                            for camp in campaign_list:
+                                                name = str(camp.get('campaign_group_name', 'N/A'))
+                                                p = prev_camp_dict.get(name, {})
+                                                curr_vol   = float(camp.get('emails_delivered', 0))
+                                                curr_open  = float(camp.get('avg_unique_open_rate', 0)) * 100
+                                                curr_click = float(camp.get('avg_unique_click_rate', 0)) * 100
+                                                prev_vol   = float(p.get('emails_delivered', 0)) if p else 0
+                                                prev_open  = float(p.get('avg_unique_open_rate', 0)) * 100 if p else 0
+                                                prev_click = float(p.get('avg_unique_click_rate', 0)) * 100 if p else 0
+                                                table_rows.append({
+                                                    "Campaign Group": name,
+                                                    "Emails Delivered": f"{int(curr_vol):,}",
+                                                    "Deliv. PoP": f"{((curr_vol - prev_vol) / prev_vol * 100):+.1f}%" if prev_vol > 0 else "---",
+                                                    "Unique Open Rate": f"{curr_open:.2f}%",
+                                                    "Open PoP": f"{(curr_open - prev_open):+.2f}%" if prev_vol > 0 else "---",
+                                                    "Unique Click Rate": f"{curr_click:.2f}%",
+                                                    "Click PoP": f"{(curr_click - prev_click):+.2f}%" if prev_vol > 0 else "---",
+                                                    "% of Total Sent": f"{float(camp.get('pct_of_total_emails_sent', 0)) * 100:.2f}%",
+                                                })
+                                            st.dataframe(table_rows, use_container_width=True, hide_index=True)
+                                else:
+                                    st.info("No vaulted email metrics found for this audit window.")
+                            else:
+                                st.caption("Email data requires a linked property ID — contact support.")
+
                             st.divider()
                             st.download_button("📥 Download Master Report (CSV)", data=df_audit.to_csv(index=False).encode('utf-8'), file_name=f"FloorCast_Audit_{s_date}.csv", use_container_width=True)
             current_tab_index += 1
