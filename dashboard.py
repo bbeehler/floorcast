@@ -719,8 +719,8 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                             
                             st.divider()
                             st.markdown("### 📨 Email Performance & Distribution Audit")
-                            if property_id:
-                                macro_email, campaign_list, prev_email, prev_campaigns = get_aggregated_email_analytics(property_id, s_date, e_date)
+                            if True:
+                                macro_email, campaign_list, prev_email, prev_campaigns = get_aggregated_email_analytics(comp_id, s_date, e_date)
                                 if macro_email and macro_email.get('total_emails_delivered', 0) > 0:
                                     safe_prev = prev_email if isinstance(prev_email, dict) else {}
                                     deliv_d, open_d, reads_d, bounce_d, unsub_d = "---", "---", "---", "---", "---"
@@ -764,8 +764,6 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                                             st.dataframe(table_rows, use_container_width=True, hide_index=True)
                                 else:
                                     st.info("No vaulted email metrics found for this audit window.")
-                            else:
-                                st.caption("Email data requires a linked property ID — contact support.")
 
                             st.divider()
                             st.download_button("📥 Download Master Report (CSV)", data=df_audit.to_csv(index=False).encode('utf-8'), file_name=f"FloorCast_Audit_{s_date}.csv", use_container_width=True)
@@ -1005,6 +1003,108 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                         })
                         if save_property_calibrations(comp_id, updated_cals):
                             st.rerun()
+
+            with st.expander("📨 Email Analytics Management", expanded=False):
+                st.caption("Vault monthly email performance data manually or by uploading a campaign CSV export.")
+                em_tab_manual, em_tab_csv = st.tabs(["✍️ Manual Entry", "📥 CSV Upload"])
+
+                with em_tab_manual:
+                    with st.form("email_manual_form", clear_on_submit=True):
+                        em1, em2, em3 = st.columns(3)
+                        em_month = em1.date_input("Reporting Month", value=date.today().replace(day=1), key="em_month")
+                        em_delivered = em2.number_input("Emails Delivered", min_value=0, step=100)
+                        em_open_rate = em3.number_input("Unique Open Rate (%)", min_value=0.0, max_value=100.0, step=0.1)
+                        em2b, em3b, em4b = st.columns(3)
+                        em_reads = em2b.number_input("Reads per Unique Open", min_value=0.0, step=0.01, format="%.2f")
+                        em_bounce = em3b.number_input("Bounce Rate (%)", min_value=0.0, max_value=100.0, step=0.01)
+                        em_unsub = em4b.number_input("Unsubscribe Rate (%)", min_value=0.0, max_value=100.0, step=0.01)
+                        if st.form_submit_button("💾 Vault Email Snapshot", type="primary", use_container_width=True):
+                            try:
+                                supabase.table("monthly_email_snapshots").upsert({
+                                    "property_id": str(comp_id),
+                                    "snapshot_month": em_month.strftime("%Y-%m-01"),
+                                    "total_emails_delivered": int(em_delivered),
+                                    "avg_unique_open_rate": float(em_open_rate / 100),
+                                    "avg_reads_per_unique_open": float(em_reads),
+                                    "avg_bounce_rate": float(em_bounce / 100),
+                                    "avg_unsubscribe_rate": float(em_unsub / 100),
+                                }).execute()
+                                st.success("Email snapshot vaulted.")
+                                time.sleep(1)
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Save failed: {e}")
+
+                with em_tab_csv:
+                    st.caption("Upload a campaign statement CSV. Required columns: `Campaign Name`, `Emails Delivered`, `Unique Email Opens`, `Total Email Opens`, `Total Email Bounces`, `Unsubscribes`, `Unique Email Clicks`.")
+                    csv_month = st.date_input("Reporting Month for this CSV", value=date.today().replace(day=1), key="csv_month")
+                    uploaded_csv = st.file_uploader("Drop CSV", type=["csv"], label_visibility="collapsed")
+
+                    def categorize_campaign(name):
+                        if pd.isna(name): return "Other"
+                        n = str(name).upper()
+                        if "HOTEL" in n: return "Hotel"
+                        if "ENTERTAINMENT" in n: return "Entertainment"
+                        if "FOOD" in n or "RESTAURANT" in n or "F&B" in n: return "Food & Beverage"
+                        if "BOUNCE BACK" in n or "BOUNCEBACK" in n: return "Bounce Back"
+                        if "FREE BET" in n: return "Free Bet"
+                        if "SLOT" in n: return "Slots"
+                        if "CORE" in n: return "Core"
+                        return "Other"
+
+                    if uploaded_csv:
+                        try:
+                            raw_df = pd.read_csv(uploaded_csv)
+                            if "Campaign Name" in raw_df.columns and "Emails Delivered" in raw_df.columns:
+                                st.success(f"File verified — {len(raw_df)} rows detected. Click below to process.")
+                                if st.button("🚀 Process & Vault to Database", use_container_width=True, type="primary"):
+                                    for col in ["Emails Delivered", "Unique Email Opens", "Total Email Opens", "Total Email Bounces", "Unsubscribes", "Unique Email Clicks"]:
+                                        if col in raw_df.columns:
+                                            raw_df[col] = pd.to_numeric(raw_df[col].astype(str).str.replace(',', ''), errors='coerce').fillna(0)
+                                    mask = raw_df["Campaign Name"].astype(str).str.contains('Total|Average', case=False, na=False)
+                                    segs = raw_df[~mask].copy()
+                                    month_str = csv_month.strftime("%Y-%m-01")
+                                    mac_del   = int(segs["Emails Delivered"].sum())
+                                    mac_uopen = int(segs["Unique Email Opens"].sum()) if "Unique Email Opens" in segs.columns else 0
+                                    mac_topen = int(segs["Total Email Opens"].sum()) if "Total Email Opens" in segs.columns else 0
+                                    mac_bnc   = int(segs["Total Email Bounces"].sum()) if "Total Email Bounces" in segs.columns else 0
+                                    mac_unsub = int(segs["Unsubscribes"].sum()) if "Unsubscribes" in segs.columns else 0
+                                    supabase.table("monthly_email_snapshots").upsert({
+                                        "property_id": str(comp_id),
+                                        "snapshot_month": month_str,
+                                        "total_emails_delivered": mac_del,
+                                        "avg_unique_open_rate": min(float(mac_uopen / mac_del) if mac_del > 0 else 0.0, 9.9999),
+                                        "avg_reads_per_unique_open": min(float(mac_topen / mac_uopen) if mac_uopen > 0 else 0.0, 9.9999),
+                                        "avg_bounce_rate": min(float(mac_bnc / mac_del) if mac_del > 0 else 0.0, 9.9999),
+                                        "avg_unsubscribe_rate": min(float(mac_unsub / mac_del) if mac_del > 0 else 0.0, 9.9999),
+                                    }).execute()
+                                    segs["Category"] = segs["Campaign Name"].apply(categorize_campaign)
+                                    grp = segs.groupby("Category").agg(
+                                        delivered=("Emails Delivered", "sum"),
+                                        u_opens=("Unique Email Opens", "sum"),
+                                        u_clicks=("Unique Email Clicks", "sum") if "Unique Email Clicks" in segs.columns else ("Emails Delivered", lambda x: 0),
+                                        bounces=("Total Email Bounces", "sum") if "Total Email Bounces" in segs.columns else ("Emails Delivered", lambda x: 0),
+                                    ).reset_index()
+                                    for _, row in grp.iterrows():
+                                        g_del = int(row["delivered"])
+                                        if g_del == 0: continue
+                                        supabase.table("campaign_group_records").upsert({
+                                            "property_id": str(comp_id),
+                                            "snapshot_month": month_str,
+                                            "campaign_group_name": str(row["Category"]),
+                                            "emails_delivered": g_del,
+                                            "avg_unique_open_rate": min(float(row["u_opens"] / g_del), 9.9999),
+                                            "avg_unique_click_rate": min(float(row["u_clicks"] / g_del), 9.9999),
+                                            "avg_bounce_rate": min(float(row["bounces"] / g_del), 9.9999),
+                                            "pct_of_total_emails_sent": min(float(g_del / mac_del), 9.9999) if mac_del > 0 else 0,
+                                        }).execute()
+                                    st.success(f"✅ Vaulted {csv_month.strftime('%B %Y')} — {mac_del:,} emails across {len(grp)} campaign groups.")
+                                    time.sleep(1.5)
+                                    st.rerun()
+                            else:
+                                st.error("CSV must contain 'Campaign Name' and 'Emails Delivered' columns.")
+                        except Exception as e:
+                            st.error(f"Upload failed: {e}")
 
             with st.expander("💳 Billing & Active Subscriptions", expanded=False):
                 b_col1, b_col2 = st.columns(2)
