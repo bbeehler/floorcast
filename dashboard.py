@@ -12,12 +12,8 @@ from dateutil.relativedelta import relativedelta
 import calendar
 
 # ==========================================
-# STATE INITIALIZATION & SAFETY WRAPPER
+# SAFETY WRAPPER
 # ==========================================
-if "active_view" not in st.session_state:
-    st.session_state.active_view = "dashboard"
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
 
 def safe_get_data(res):
     """Bulletproofs Supabase API responses against Streamlit AttributeError crashes."""
@@ -184,6 +180,11 @@ def save_property_calibrations(comp_id, calibrations):
 # MAIN RENDER FUNCTION
 # ==========================================
 def render():
+    if "active_view" not in st.session_state:
+        st.session_state.active_view = "dashboard"
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+
     profile = st.session_state.get('user_profile', {})
     user_role = profile.get('global_role', 'User')
 
