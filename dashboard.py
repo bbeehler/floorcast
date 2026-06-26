@@ -167,6 +167,21 @@ def archive_sentiment_entry(text, asset_tag, review_date, comp_id):
     except: return False
 
 # ==========================================
+# STATE INITIALIZATION (BULLTPROOF)
+# ==========================================
+def initialize_session_state():
+    if "active_view" not in st.session_state:
+        st.session_state.active_view = "dashboard"
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+    # Added this to prevent the attribute error when fetching user profile
+    if "user_profile" not in st.session_state:
+        st.session_state.user_profile = {}
+
+# Run this once at the very start
+initialize_session_state()
+
+# ==========================================
 # MAIN RENDER FUNCTION
 # ==========================================
 def render():
