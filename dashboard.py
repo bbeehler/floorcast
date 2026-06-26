@@ -418,6 +418,11 @@ def render():
                                 },
                                 num_rows="dynamic", use_container_width=True, hide_index=True, key="interactive_ledger_editor"
                             )
+                            st.write(f"DEBUG: Current comp_id being queried: {comp_id}")
+st.write(f"DEBUG: Rows retrieved from property_performance: {len(df_perf)}")
+if not df_perf.empty:
+    st.write("DEBUG: Sample of data retrieved:")
+    st.write(df_perf.head(2))
                             if st.form_submit_button("💾 Sync Corrections to Vault", type="primary", use_container_width=True):
                                 try:
                                     orig_ids, new_ids = set(df_edit['id'].dropna()), set(edited_df['id'].dropna())
