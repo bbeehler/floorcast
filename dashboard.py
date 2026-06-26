@@ -27,7 +27,7 @@ def safe_get_data(res):
 # CALIBRATION & AI ENGINES
 # ==========================================
 def get_forensic_metrics(df_input, cals):
-    if not df_input: return {"df": pd.DataFrame()}
+    if not df_input or len(df_input) == 0: return {"df": pd.DataFrame()}
     df = pd.DataFrame(df_input).copy()
     df['record_date'] = pd.to_datetime(df['record_date'])
     
@@ -257,7 +257,8 @@ def render():
             has_data = False
             df_perf = pd.DataFrame()
             df_forward = pd.DataFrame()
-    except Exception:
+    except Exception as e:
+        st.warning(f"Could not load performance data: {e}")
         total_coin_in, total_table_drop, total_marketing = 0.0, 0.0, 0.0
         has_data = False
         df_perf = pd.DataFrame()
