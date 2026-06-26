@@ -250,17 +250,28 @@ def render():
 
     def save_daily_log(entry_date, payload):
         try:
+            # 1. Check if a record already exists for this date
             existing = supabase.table("property_performance").select("id").eq("parent_company_id", comp_id).eq("record_date", str(entry_date)).execute()
             ex_data = safe_get_data(existing)
-            if ex_data: supabase.table("property_performance").update(payload).eq("id", ex_data[0]['id']).execute()
+            
+            # 2. Execute Update or Insert
+            if ex_data: 
+                res = supabase.table("property_performance").update(payload).eq("id", ex_data[0]['id']).execute()
             else:
                 payload["parent_company_id"] = comp_id
                 payload["record_date"] = str(entry_date)
-                supabase.table("property_performance").insert(payload).execute()
+                res = supabase.table("property_performance").insert(payload).execute()
+            
+            # 3. THE FIX: Verify the database actually wrote the row
+            if not safe_get_data(res):
+                st.error("🚨 Write Blocked: Supabase accepted the request, but 0 rows were written. Please verify your RLS policies.")
+                return
+                
             st.success(f"Ledger for {entry_date} securely updated.")
             time.sleep(1.5)
             st.rerun()
-        except Exception as e: st.error(f"Save failed: {e}")
+        except Exception as e: 
+            st.error(f"Save failed: {e}")
 
     # --- 3. TOP NAVIGATION BAR ---
     nav_c1, nav_c2, nav_c3, nav_c4 = st.columns([5, 2, 1.5, 1])
