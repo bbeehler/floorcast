@@ -236,7 +236,7 @@ def render():
 
     # --- 2. GLOBAL PREDICTIVE DATA FETCH ---
     try:
-        perf_res = supabase.table("property_performance").select("*").eq("parent_company_id", comp_id).order("record_date", asc=True).execute()
+        perf_res = supabase.table("property_performance").select("*").eq("parent_company_id", comp_id).order("record_date", desc=False).execute()
         perf_data = safe_get_data(perf_res)
         if perf_data:
             df_perf = pd.DataFrame(perf_data)
