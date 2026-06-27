@@ -466,7 +466,7 @@ def render():
             # --- MARKETING PERFORMANCE MATRIX ---
             st.divider()
             st.markdown("#### 📊 Marketing Performance Matrix")
-            _mm_res = supabase.table("monthly_marketing_snapshots").select("*").eq("property_id", str(comp_id)).order("snapshot_month", desc=True).limit(24).execute()
+            _mm_res = supabase.table("monthly_marketing_snapshots").select("*").eq("parent_company_id", str(comp_id)).order("snapshot_month", desc=True).limit(24).execute()
             _mm_data = safe_get_data(_mm_res)
             df_mm = pd.DataFrame(_mm_data) if _mm_data else pd.DataFrame()
 
@@ -487,7 +487,7 @@ def render():
                     if st.form_submit_button("💾 Commit Snapshot", use_container_width=True, type="primary"):
                         try:
                             supabase.table("monthly_marketing_snapshots").upsert({
-                                "property_id": str(comp_id),
+                                "parent_company_id": str(comp_id),
                                 "snapshot_month": mm_month.strftime("%Y-%m-%d"),
                                 "ctr": mm_ctr, "cpc": mm_cpc,
                                 "impressions": mm_imps,
