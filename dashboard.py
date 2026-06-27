@@ -463,96 +463,29 @@ def render():
                     fig_fin.update_layout(title="Revenue Projection", height=300, template="plotly_white", margin=dict(l=10, r=10, t=30, b=10))
                     st.plotly_chart(fig_fin, use_container_width=True)
 
-            # --- MARKETING PERFORMANCE MATRIX ---
-            st.divider()
-            st.markdown("#### 📊 Marketing Performance Matrix")
-            _mm_res = supabase.table("monthly_marketing_snapshots").select("*").eq("parent_company_id", str(comp_id)).order("snapshot_month", desc=True).limit(24).execute()
+            # --- MARKETING SNAPSHOT METRIC CARDS ---
+            _mm_res = supabase.table("monthly_marketing_snapshots").select("*").eq("parent_company_id", str(comp_id)).order("snapshot_month", desc=True).limit(2).execute()
             _mm_data = safe_get_data(_mm_res)
-            df_mm = pd.DataFrame(_mm_data) if _mm_data else pd.DataFrame()
-
-            with st.expander("➕ Log Monthly Marketing Snapshot", expanded=df_mm.empty):
-                with st.form("mkt_snapshot_form", clear_on_submit=True):
-                    ms1, ms2, ms3 = st.columns(3)
-                    mm_month = ms1.date_input("Snapshot Month", value=date.today().replace(day=1), key="mm_month")
-                    mm_ctr = ms2.number_input("CTR (%)", min_value=0.0, step=0.01, format="%.3f")
-                    mm_cpc = ms3.number_input("CPC ($)", min_value=0.0, step=0.01)
-                    ms4, ms5, ms6 = st.columns(3)
-                    mm_imps = ms4.number_input("Impressions", min_value=0, step=1000)
-                    mm_growth = ms5.number_input("Social Growth Rate (%)", min_value=0.0, step=0.1)
-                    mm_followers = ms6.number_input("Followers", min_value=0, step=100)
-                    ms7, ms8, ms9 = st.columns(3)
-                    mm_engage = ms7.number_input("Engagement Rate (%)", min_value=0.0, step=0.01)
-                    mm_sentiment = ms8.number_input("Sentiment Score", min_value=-1.0, max_value=1.0, step=0.01)
-                    mm_nps = ms9.number_input("NPS (%)", min_value=-100.0, max_value=100.0, step=0.1)
-                    if st.form_submit_button("💾 Commit Snapshot", use_container_width=True, type="primary"):
-                        try:
-                            supabase.table("monthly_marketing_snapshots").upsert({
-                                "parent_company_id": str(comp_id),
-                                "snapshot_month": mm_month.strftime("%Y-%m-%d"),
-                                "ctr": mm_ctr, "cpc": mm_cpc,
-                                "impressions": mm_imps,
-                                "social_growth_rate": mm_growth,
-                                "followers": mm_followers,
-                                "engagement_rate": mm_engage,
-                                "sentiment_score": mm_sentiment,
-                                "nps_pct": mm_nps
-                            }).execute()
-                            st.success("Snapshot committed."); st.rerun()
-                        except Exception as e: st.error(f"Save failed: {e}")
-
-            if not df_mm.empty:
-                df_mm['snapshot_month'] = pd.to_datetime(df_mm['snapshot_month'])
-                df_mm = df_mm.sort_values('snapshot_month', ascending=False)
-
-                edit_cols_mm = ['id', 'snapshot_month', 'ctr', 'cpc', 'impressions', 'social_growth_rate', 'followers', 'engagement_rate', 'sentiment_score', 'nps_pct']
-                for _c in edit_cols_mm:
-                    if _c not in df_mm.columns: df_mm[_c] = None
-                df_mm_edit = df_mm[edit_cols_mm].copy()
-                df_mm_edit['snapshot_month'] = pd.to_datetime(df_mm_edit['snapshot_month']).dt.date
-
-                with st.form("mm_edit_form", border=False):
-                    edited_mm = st.data_editor(
-                        df_mm_edit,
-                        column_config={
-                            "id": None,
-                            "snapshot_month": st.column_config.DateColumn("Month", required=True),
-                            "ctr": st.column_config.NumberColumn("CTR (%)", format="%.3f", step=0.001),
-                            "cpc": st.column_config.NumberColumn("CPC ($)", format="$%.2f", step=0.01),
-                            "impressions": st.column_config.NumberColumn("Impressions", step=1),
-                            "social_growth_rate": st.column_config.NumberColumn("Social Growth (%)", format="%.2f", step=0.1),
-                            "followers": st.column_config.NumberColumn("Followers", step=1),
-                            "engagement_rate": st.column_config.NumberColumn("Engagement (%)", format="%.2f", step=0.01),
-                            "sentiment_score": st.column_config.NumberColumn("Sentiment", format="%.2f", min_value=-1.0, max_value=1.0, step=0.01),
-                            "nps_pct": st.column_config.NumberColumn("NPS (%)", format="%.1f", step=0.1),
-                        },
-                        num_rows="dynamic", use_container_width=True, hide_index=True, key="mm_editor"
-                    )
-                    if st.form_submit_button("💾 Sync Matrix Corrections", type="primary", use_container_width=True):
-                        try:
-                            orig_ids = set(df_mm_edit['id'].dropna())
-                            new_ids = set(edited_mm['id'].dropna())
-                            for d_id in (orig_ids - new_ids):
-                                supabase.table("monthly_marketing_snapshots").delete().eq("id", d_id).execute()
-                            upsert_mm = []
-                            for _, row in edited_mm.iterrows():
-                                rec = {
-                                    "parent_company_id": str(comp_id),
-                                    "snapshot_month": str(row['snapshot_month']),
-                                    "ctr": row['ctr'] if pd.notna(row.get('ctr')) else None,
-                                    "cpc": row['cpc'] if pd.notna(row.get('cpc')) else None,
-                                    "impressions": int(row['impressions']) if pd.notna(row.get('impressions')) else None,
-                                    "social_growth_rate": row['social_growth_rate'] if pd.notna(row.get('social_growth_rate')) else None,
-                                    "followers": int(row['followers']) if pd.notna(row.get('followers')) else None,
-                                    "engagement_rate": row['engagement_rate'] if pd.notna(row.get('engagement_rate')) else None,
-                                    "sentiment_score": row['sentiment_score'] if pd.notna(row.get('sentiment_score')) else None,
-                                    "nps_pct": row['nps_pct'] if pd.notna(row.get('nps_pct')) else None,
-                                }
-                                if pd.notna(row.get('id')): rec['id'] = row['id']
-                                upsert_mm.append(rec)
-                            if upsert_mm:
-                                supabase.table("monthly_marketing_snapshots").upsert(upsert_mm).execute()
-                            st.success("✅ Matrix synced."); time.sleep(1); st.rerun()
-                        except Exception as e: st.error(f"Sync failed: {e}")
+            if _mm_data:
+                st.divider()
+                _mm_cur = _mm_data[0]
+                _mm_prev = _mm_data[1] if len(_mm_data) > 1 else {}
+                _mm_label = pd.to_datetime(_mm_cur.get('snapshot_month')).strftime('%B %Y') if _mm_cur.get('snapshot_month') else "Latest"
+                st.markdown(f"#### 📊 Marketing Pulse — {_mm_label}")
+                mm_c1, mm_c2, mm_c3, mm_c4 = st.columns(4)
+                def _mm_delta(cur, prev, key):
+                    try:
+                        return f"{float(cur.get(key,0) or 0) - float(prev.get(key,0) or 0):+.2f}"
+                    except: return None
+                mm_c1.metric("CTR", f"{float(_mm_cur.get('ctr') or 0):.3f}%", _mm_delta(_mm_cur, _mm_prev, 'ctr'))
+                mm_c2.metric("CPC", f"${float(_mm_cur.get('cpc') or 0):.2f}", _mm_delta(_mm_cur, _mm_prev, 'cpc'))
+                mm_c3.metric("Impressions", f"{int(_mm_cur.get('impressions') or 0):,}", _mm_delta(_mm_cur, _mm_prev, 'impressions'))
+                mm_c4.metric("Followers", f"{int(_mm_cur.get('followers') or 0):,}", _mm_delta(_mm_cur, _mm_prev, 'followers'))
+                mm_c5, mm_c6, mm_c7, mm_c8 = st.columns(4)
+                mm_c5.metric("Social Growth", f"{float(_mm_cur.get('social_growth_rate') or 0):.2f}%", _mm_delta(_mm_cur, _mm_prev, 'social_growth_rate'))
+                mm_c6.metric("Engagement Rate", f"{float(_mm_cur.get('engagement_rate') or 0):.2f}%", _mm_delta(_mm_cur, _mm_prev, 'engagement_rate'))
+                mm_c7.metric("Sentiment Score", f"{float(_mm_cur.get('sentiment_score') or 0):.2f}", _mm_delta(_mm_cur, _mm_prev, 'sentiment_score'))
+                mm_c8.metric("NPS", f"{float(_mm_cur.get('nps_pct') or 0):.1f}%", _mm_delta(_mm_cur, _mm_prev, 'nps_pct'))
 
         # --- THE CORE SUITE ---
         current_tab_index = 1
@@ -651,7 +584,7 @@ def render():
             # --- TAB 3: MARKETING ---
             with tabs[current_tab_index]:
                 st.markdown("### 📈 Marketing & Attribution Analytics")
-                mkt_tabs = st.tabs(["💰 Monthly Spend & BL-ROAS", "📊 O2O Attribution Visuals", "🔬 Experiment Vault", "📨 Email Analytics"])
+                mkt_tabs = st.tabs(["💰 Monthly Spend & BL-ROAS", "📊 O2O Attribution Visuals", "🔬 Experiment Vault", "📨 Email Analytics", "📊 Performance Matrix"])
                 
                 with mkt_tabs[0]:
                     st.markdown("#### Monthly Ad Spend & ROI Calculator")
@@ -878,6 +811,94 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                                 st.error("CSV must contain 'Campaign Name' and 'Emails Delivered' columns.")
                         except Exception as e:
                             st.error(f"Upload failed: {e}")
+
+                with mkt_tabs[4]:
+                    st.markdown("#### 📊 Marketing Performance Matrix")
+                    _mmx_res = supabase.table("monthly_marketing_snapshots").select("*").eq("parent_company_id", str(comp_id)).order("snapshot_month", desc=True).limit(24).execute()
+                    _mmx_data = safe_get_data(_mmx_res)
+                    df_mmx = pd.DataFrame(_mmx_data) if _mmx_data else pd.DataFrame()
+
+                    with st.expander("➕ Log Monthly Marketing Snapshot", expanded=df_mmx.empty):
+                        with st.form("mkt_snapshot_form", clear_on_submit=True):
+                            ms1, ms2, ms3 = st.columns(3)
+                            mm_month = ms1.date_input("Snapshot Month", value=date.today().replace(day=1), key="mm_month")
+                            mm_ctr = ms2.number_input("CTR (%)", min_value=0.0, step=0.001, format="%.3f")
+                            mm_cpc = ms3.number_input("CPC ($)", min_value=0.0, step=0.01)
+                            ms4, ms5, ms6 = st.columns(3)
+                            mm_imps = ms4.number_input("Impressions", min_value=0, step=1000)
+                            mm_growth = ms5.number_input("Social Growth Rate (%)", min_value=0.0, step=0.1)
+                            mm_followers = ms6.number_input("Followers", min_value=0, step=100)
+                            ms7, ms8, ms9 = st.columns(3)
+                            mm_engage = ms7.number_input("Engagement Rate (%)", min_value=0.0, step=0.01)
+                            mm_sentiment = ms8.number_input("Sentiment Score", min_value=-1.0, max_value=1.0, step=0.01)
+                            mm_nps = ms9.number_input("NPS (%)", min_value=-100.0, max_value=100.0, step=0.1)
+                            if st.form_submit_button("💾 Commit Snapshot", use_container_width=True, type="primary"):
+                                try:
+                                    supabase.table("monthly_marketing_snapshots").upsert({
+                                        "parent_company_id": str(comp_id),
+                                        "snapshot_month": mm_month.strftime("%Y-%m-%d"),
+                                        "ctr": mm_ctr, "cpc": mm_cpc,
+                                        "impressions": mm_imps,
+                                        "social_growth_rate": mm_growth,
+                                        "followers": mm_followers,
+                                        "engagement_rate": mm_engage,
+                                        "sentiment_score": mm_sentiment,
+                                        "nps_pct": mm_nps
+                                    }).execute()
+                                    st.success("Snapshot committed."); st.rerun()
+                                except Exception as e: st.error(f"Save failed: {e}")
+
+                    if not df_mmx.empty:
+                        df_mmx['snapshot_month'] = pd.to_datetime(df_mmx['snapshot_month'])
+                        df_mmx = df_mmx.sort_values('snapshot_month', ascending=False)
+                        _edit_cols = ['id', 'snapshot_month', 'ctr', 'cpc', 'impressions', 'social_growth_rate', 'followers', 'engagement_rate', 'sentiment_score', 'nps_pct']
+                        for _c in _edit_cols:
+                            if _c not in df_mmx.columns: df_mmx[_c] = None
+                        df_mmx_edit = df_mmx[_edit_cols].copy()
+                        df_mmx_edit['snapshot_month'] = pd.to_datetime(df_mmx_edit['snapshot_month']).dt.date
+                        with st.form("mm_edit_form", border=False):
+                            edited_mmx = st.data_editor(
+                                df_mmx_edit,
+                                column_config={
+                                    "id": None,
+                                    "snapshot_month": st.column_config.DateColumn("Month", required=True),
+                                    "ctr": st.column_config.NumberColumn("CTR (%)", format="%.3f", step=0.001),
+                                    "cpc": st.column_config.NumberColumn("CPC ($)", format="$%.2f", step=0.01),
+                                    "impressions": st.column_config.NumberColumn("Impressions", step=1),
+                                    "social_growth_rate": st.column_config.NumberColumn("Social Growth (%)", format="%.2f", step=0.1),
+                                    "followers": st.column_config.NumberColumn("Followers", step=1),
+                                    "engagement_rate": st.column_config.NumberColumn("Engagement (%)", format="%.2f", step=0.01),
+                                    "sentiment_score": st.column_config.NumberColumn("Sentiment", format="%.2f", min_value=-1.0, max_value=1.0, step=0.01),
+                                    "nps_pct": st.column_config.NumberColumn("NPS (%)", format="%.1f", step=0.1),
+                                },
+                                num_rows="dynamic", use_container_width=True, hide_index=True, key="mm_editor"
+                            )
+                            if st.form_submit_button("💾 Sync Matrix Corrections", type="primary", use_container_width=True):
+                                try:
+                                    orig_ids = set(df_mmx_edit['id'].dropna())
+                                    new_ids = set(edited_mmx['id'].dropna())
+                                    for d_id in (orig_ids - new_ids):
+                                        supabase.table("monthly_marketing_snapshots").delete().eq("id", d_id).execute()
+                                    upsert_mmx = []
+                                    for _, row in edited_mmx.iterrows():
+                                        rec = {
+                                            "parent_company_id": str(comp_id),
+                                            "snapshot_month": str(row['snapshot_month']),
+                                            "ctr": row['ctr'] if pd.notna(row.get('ctr')) else None,
+                                            "cpc": row['cpc'] if pd.notna(row.get('cpc')) else None,
+                                            "impressions": int(row['impressions']) if pd.notna(row.get('impressions')) else None,
+                                            "social_growth_rate": row['social_growth_rate'] if pd.notna(row.get('social_growth_rate')) else None,
+                                            "followers": int(row['followers']) if pd.notna(row.get('followers')) else None,
+                                            "engagement_rate": row['engagement_rate'] if pd.notna(row.get('engagement_rate')) else None,
+                                            "sentiment_score": row['sentiment_score'] if pd.notna(row.get('sentiment_score')) else None,
+                                            "nps_pct": row['nps_pct'] if pd.notna(row.get('nps_pct')) else None,
+                                        }
+                                        if pd.notna(row.get('id')): rec['id'] = row['id']
+                                        upsert_mmx.append(rec)
+                                    if upsert_mmx:
+                                        supabase.table("monthly_marketing_snapshots").upsert(upsert_mmx).execute()
+                                    st.success("✅ Matrix synced."); time.sleep(1); st.rerun()
+                                except Exception as e: st.error(f"Sync failed: {e}")
 
             current_tab_index += 1
 
