@@ -463,6 +463,97 @@ def render():
                     fig_fin.update_layout(title="Revenue Projection", height=300, template="plotly_white", margin=dict(l=10, r=10, t=30, b=10))
                     st.plotly_chart(fig_fin, use_container_width=True)
 
+            # --- MARKETING PERFORMANCE MATRIX ---
+            st.divider()
+            st.markdown("#### 📊 Marketing Performance Matrix")
+            _mm_res = supabase.table("monthly_marketing_snapshots").select("*").eq("property_id", str(comp_id)).order("snapshot_month", desc=True).limit(24).execute()
+            _mm_data = safe_get_data(_mm_res)
+            df_mm = pd.DataFrame(_mm_data) if _mm_data else pd.DataFrame()
+
+            with st.expander("➕ Log Monthly Marketing Snapshot", expanded=df_mm.empty):
+                with st.form("mkt_snapshot_form", clear_on_submit=True):
+                    ms1, ms2, ms3 = st.columns(3)
+                    mm_month = ms1.date_input("Snapshot Month", value=date.today().replace(day=1), key="mm_month")
+                    mm_ctr = ms2.number_input("CTR (%)", min_value=0.0, step=0.01, format="%.3f")
+                    mm_cpc = ms3.number_input("CPC ($)", min_value=0.0, step=0.01)
+                    ms4, ms5, ms6 = st.columns(3)
+                    mm_imps = ms4.number_input("Impressions", min_value=0, step=1000)
+                    mm_growth = ms5.number_input("Social Growth Rate (%)", min_value=0.0, step=0.1)
+                    mm_followers = ms6.number_input("Followers", min_value=0, step=100)
+                    ms7, ms8, ms9 = st.columns(3)
+                    mm_engage = ms7.number_input("Engagement Rate (%)", min_value=0.0, step=0.01)
+                    mm_sentiment = ms8.number_input("Sentiment Score", min_value=-1.0, max_value=1.0, step=0.01)
+                    mm_nps = ms9.number_input("NPS (%)", min_value=-100.0, max_value=100.0, step=0.1)
+                    if st.form_submit_button("💾 Commit Snapshot", use_container_width=True, type="primary"):
+                        try:
+                            supabase.table("monthly_marketing_snapshots").upsert({
+                                "property_id": str(comp_id),
+                                "snapshot_month": mm_month.strftime("%Y-%m-%d"),
+                                "ctr": mm_ctr, "cpc": mm_cpc,
+                                "impressions": mm_imps,
+                                "social_growth_rate": mm_growth,
+                                "followers": mm_followers,
+                                "engagement_rate": mm_engage,
+                                "sentiment_score": mm_sentiment,
+                                "nps_pct": mm_nps
+                            }).execute()
+                            st.success("Snapshot committed."); st.rerun()
+                        except Exception as e: st.error(f"Save failed: {e}")
+
+            if not df_mm.empty:
+                df_mm['snapshot_month'] = pd.to_datetime(df_mm['snapshot_month'])
+                df_mm = df_mm.sort_values('snapshot_month', ascending=False)
+
+                def _fmt_delta(val, suffix=""):
+                    if val is None or (isinstance(val, float) and pd.isna(val)):
+                        return "—"
+                    arrow = "▲" if float(val) > 0 else "▼" if float(val) < 0 else "–"
+                    color = "green" if float(val) > 0 else "red" if float(val) < 0 else "gray"
+                    return f"<span style='color:{color}'>{arrow} {abs(float(val)):.1f}{suffix}</span>"
+
+                rows_html = ""
+                for _, row in df_mm.iterrows():
+                    rows_html += f"""<tr>
+                        <td>{pd.to_datetime(row['snapshot_month']).strftime('%b %Y')}</td>
+                        <td>{row.get('ctr', 0):.2f}%</td><td>{_fmt_delta(row.get('mom_ctr_pct'), '%')}</td><td>{row.get('ytd_ctr', '—')}</td>
+                        <td>${row.get('cpc', 0):.2f}</td><td>{_fmt_delta(row.get('mom_cpc_pct'), '%')}</td><td>{row.get('ytd_cpc', '—')}</td>
+                        <td>{int(row.get('impressions', 0) or 0):,}</td><td>{_fmt_delta(row.get('mom_imps_pct'), '%')}</td>
+                        <td>{row.get('social_growth_rate', 0):.1f}%</td><td>{_fmt_delta(row.get('mom_growth_pct'), '%')}</td>
+                        <td>{int(row.get('followers', 0) or 0):,}</td><td>{_fmt_delta(row.get('mom_followers_pct'), '%')}</td>
+                        <td>{row.get('engagement_rate', 0):.2f}%</td><td>{_fmt_delta(row.get('mom_engage_pct'), '%')}</td>
+                        <td>{row.get('sentiment_score', 0):.2f}</td><td>{_fmt_delta(row.get('mom_sentiment_pct'), '%')}</td>
+                        <td>{row.get('nps_pct', 0):.1f}%</td>
+                    </tr>"""
+
+                st.markdown(f"""
+                <div style="overflow-x:auto;">
+                <table style="width:100%; border-collapse:collapse; font-size:12px;">
+                <thead><tr style="background:#1E3A5F; color:white;">
+                    <th>Month</th>
+                    <th colspan="3" style="border-left:1px solid #334">CTR</th>
+                    <th colspan="3" style="border-left:1px solid #334">CPC</th>
+                    <th colspan="2" style="border-left:1px solid #334">Impressions</th>
+                    <th colspan="2" style="border-left:1px solid #334">Social Growth</th>
+                    <th colspan="2" style="border-left:1px solid #334">Followers</th>
+                    <th colspan="2" style="border-left:1px solid #334">Engagement</th>
+                    <th colspan="2" style="border-left:1px solid #334">Sentiment</th>
+                    <th style="border-left:1px solid #334">NPS</th>
+                </tr>
+                <tr style="background:#2D4E6E; color:#CBD5E1; font-size:10px;">
+                    <th></th>
+                    <th>Val</th><th>MoM</th><th>YTD</th>
+                    <th>Val</th><th>MoM</th><th>YTD</th>
+                    <th>Val</th><th>MoM</th>
+                    <th>Val</th><th>MoM</th>
+                    <th>Val</th><th>MoM</th>
+                    <th>Val</th><th>MoM</th>
+                    <th>Val</th><th>MoM</th>
+                    <th>Val</th>
+                </tr></thead>
+                <tbody style="text-align:center;">{rows_html}</tbody>
+                </table></div>
+                """, unsafe_allow_html=True)
+
         # --- THE CORE SUITE ---
         current_tab_index = 1
         if "Core AI & Marketing" in active_modules:
