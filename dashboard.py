@@ -947,24 +947,41 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                     st.divider()
                     st.markdown("### 🏛️ Brand Sentiment Pulse")
                     pulse_col, period_col = st.columns([3, 1])
+
+                    # Build month options without dateutil
+                    import calendar as _cal
+                    _today = date.today()
+                    _g_months = []
+                    _y, _m = _today.year, _today.month
+                    for _i in range(3):
+                        _g_months.append(date(_y, _m, 1))
+                        _m -= 1
+                        if _m == 0:
+                            _m = 12
+                            _y -= 1
+                    _g_labels = ["Current (Live)"] + [m.strftime("%B %Y") for m in _g_months[1:]]
+
                     with period_col:
-                        from dateutil.relativedelta import relativedelta as _rd
-                        _today = date.today()
-                        _g_months = [(_today - _rd(months=i)).replace(day=1) for i in range(3)]
-                        _g_labels = ["Current (Live)"] + [m.strftime("%B %Y") for m in _g_months[1:]]
                         sel_period = st.selectbox("Audit Period:", _g_labels, key="gauge_period_sel")
+
+                    # Determine date range for non-live periods
+                    _sel_start = None
+                    _sel_end = None
+                    if sel_period != "Current (Live)":
+                        _sel_start = _g_months[_g_labels.index(sel_period)]
+                        _last_day = _cal.monthrange(_sel_start.year, _sel_start.month)[1]
+                        _sel_end = date(_sel_start.year, _sel_start.month, _last_day)
 
                     overall_score = 0.0
                     try:
                         _base_q = supabase.table("sentiment_history").select("sentiment_score").eq("parent_company_id", comp_id)
-                        if sel_period == "Current (Live)":
+                        if _sel_start is None:
                             _g_res = _base_q.order("timestamp", desc=True).limit(50).execute()
                         else:
-                            _sel_date = _g_months[_g_labels.index(sel_period)]
-                            _g_res = _base_q.gte("timestamp", _sel_date.strftime("%Y-%m-%d")).lte("timestamp", (_sel_date + _rd(months=1)).strftime("%Y-%m-%d")).execute()
+                            _g_res = _base_q.gte("timestamp", _sel_start.isoformat()).lte("timestamp", _sel_end.isoformat()).execute()
                         _g_data = safe_get_data(_g_res)
                         if _g_data:
-                            _mapped = [(s['sentiment_score'] * 2 - 1) if 0 <= float(s['sentiment_score']) <= 1 else float(s['sentiment_score']) for s in _g_data]
+                            _mapped = [(float(s['sentiment_score']) * 2 - 1) if 0 <= float(s['sentiment_score']) <= 1 else float(s['sentiment_score']) for s in _g_data]
                             overall_score = float(np.mean(_mapped))
                     except Exception: pass
 
@@ -987,13 +1004,13 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                                 _tag_score = 0.0
                                 try:
                                     _tq = supabase.table("sentiment_history").select("sentiment_score").eq("parent_company_id", comp_id).eq("asset", asset_tag)
-                                    if sel_period == "Current (Live)":
+                                    if _sel_start is None:
                                         _tr = _tq.order("timestamp", desc=True).limit(15).execute()
                                     else:
-                                        _tr = _tq.gte("timestamp", _sel_date.strftime("%Y-%m-%d")).lte("timestamp", (_sel_date + _rd(months=1)).strftime("%Y-%m-%d")).execute()
+                                        _tr = _tq.gte("timestamp", _sel_start.isoformat()).lte("timestamp", _sel_end.isoformat()).execute()
                                     _td = safe_get_data(_tr)
                                     if _td:
-                                        _tag_score = float(np.mean([(s['sentiment_score'] * 2 - 1) if 0 <= float(s['sentiment_score']) <= 1 else float(s['sentiment_score']) for s in _td]))
+                                        _tag_score = float(np.mean([(float(s['sentiment_score']) * 2 - 1) if 0 <= float(s['sentiment_score']) <= 1 else float(s['sentiment_score']) for s in _td]))
                                 except Exception: pass
                                 fig_g = go.Figure(go.Indicator(
                                     mode="gauge+number",
