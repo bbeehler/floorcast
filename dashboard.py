@@ -504,55 +504,55 @@ def render():
                 df_mm['snapshot_month'] = pd.to_datetime(df_mm['snapshot_month'])
                 df_mm = df_mm.sort_values('snapshot_month', ascending=False)
 
-                def _fmt_delta(val, suffix=""):
-                    if val is None or (isinstance(val, float) and pd.isna(val)):
-                        return "—"
-                    arrow = "▲" if float(val) > 0 else "▼" if float(val) < 0 else "–"
-                    color = "green" if float(val) > 0 else "red" if float(val) < 0 else "gray"
-                    return f"<span style='color:{color}'>{arrow} {abs(float(val)):.1f}{suffix}</span>"
+                edit_cols_mm = ['id', 'snapshot_month', 'ctr', 'cpc', 'impressions', 'social_growth_rate', 'followers', 'engagement_rate', 'sentiment_score', 'nps_pct']
+                for _c in edit_cols_mm:
+                    if _c not in df_mm.columns: df_mm[_c] = None
+                df_mm_edit = df_mm[edit_cols_mm].copy()
+                df_mm_edit['snapshot_month'] = pd.to_datetime(df_mm_edit['snapshot_month']).dt.date
 
-                rows_html = ""
-                for _, row in df_mm.iterrows():
-                    rows_html += f"""<tr>
-                        <td>{pd.to_datetime(row['snapshot_month']).strftime('%b %Y')}</td>
-                        <td>{row.get('ctr', 0):.2f}%</td><td>{_fmt_delta(row.get('mom_ctr_pct'), '%')}</td><td>{row.get('ytd_ctr', '—')}</td>
-                        <td>${row.get('cpc', 0):.2f}</td><td>{_fmt_delta(row.get('mom_cpc_pct'), '%')}</td><td>{row.get('ytd_cpc', '—')}</td>
-                        <td>{int(row.get('impressions', 0) or 0):,}</td><td>{_fmt_delta(row.get('mom_imps_pct'), '%')}</td>
-                        <td>{row.get('social_growth_rate', 0):.1f}%</td><td>{_fmt_delta(row.get('mom_growth_pct'), '%')}</td>
-                        <td>{int(row.get('followers', 0) or 0):,}</td><td>{_fmt_delta(row.get('mom_followers_pct'), '%')}</td>
-                        <td>{row.get('engagement_rate', 0):.2f}%</td><td>{_fmt_delta(row.get('mom_engage_pct'), '%')}</td>
-                        <td>{row.get('sentiment_score', 0):.2f}</td><td>{_fmt_delta(row.get('mom_sentiment_pct'), '%')}</td>
-                        <td>{row.get('nps_pct', 0):.1f}%</td>
-                    </tr>"""
-
-                st.markdown(f"""
-                <div style="overflow-x:auto;">
-                <table style="width:100%; border-collapse:collapse; font-size:12px;">
-                <thead><tr style="background:#1E3A5F; color:white;">
-                    <th>Month</th>
-                    <th colspan="3" style="border-left:1px solid #334">CTR</th>
-                    <th colspan="3" style="border-left:1px solid #334">CPC</th>
-                    <th colspan="2" style="border-left:1px solid #334">Impressions</th>
-                    <th colspan="2" style="border-left:1px solid #334">Social Growth</th>
-                    <th colspan="2" style="border-left:1px solid #334">Followers</th>
-                    <th colspan="2" style="border-left:1px solid #334">Engagement</th>
-                    <th colspan="2" style="border-left:1px solid #334">Sentiment</th>
-                    <th style="border-left:1px solid #334">NPS</th>
-                </tr>
-                <tr style="background:#2D4E6E; color:#CBD5E1; font-size:10px;">
-                    <th></th>
-                    <th>Val</th><th>MoM</th><th>YTD</th>
-                    <th>Val</th><th>MoM</th><th>YTD</th>
-                    <th>Val</th><th>MoM</th>
-                    <th>Val</th><th>MoM</th>
-                    <th>Val</th><th>MoM</th>
-                    <th>Val</th><th>MoM</th>
-                    <th>Val</th><th>MoM</th>
-                    <th>Val</th>
-                </tr></thead>
-                <tbody style="text-align:center;">{rows_html}</tbody>
-                </table></div>
-                """, unsafe_allow_html=True)
+                with st.form("mm_edit_form", border=False):
+                    edited_mm = st.data_editor(
+                        df_mm_edit,
+                        column_config={
+                            "id": None,
+                            "snapshot_month": st.column_config.DateColumn("Month", required=True),
+                            "ctr": st.column_config.NumberColumn("CTR (%)", format="%.3f", step=0.001),
+                            "cpc": st.column_config.NumberColumn("CPC ($)", format="$%.2f", step=0.01),
+                            "impressions": st.column_config.NumberColumn("Impressions", step=1),
+                            "social_growth_rate": st.column_config.NumberColumn("Social Growth (%)", format="%.2f", step=0.1),
+                            "followers": st.column_config.NumberColumn("Followers", step=1),
+                            "engagement_rate": st.column_config.NumberColumn("Engagement (%)", format="%.2f", step=0.01),
+                            "sentiment_score": st.column_config.NumberColumn("Sentiment", format="%.2f", min_value=-1.0, max_value=1.0, step=0.01),
+                            "nps_pct": st.column_config.NumberColumn("NPS (%)", format="%.1f", step=0.1),
+                        },
+                        num_rows="dynamic", use_container_width=True, hide_index=True, key="mm_editor"
+                    )
+                    if st.form_submit_button("💾 Sync Matrix Corrections", type="primary", use_container_width=True):
+                        try:
+                            orig_ids = set(df_mm_edit['id'].dropna())
+                            new_ids = set(edited_mm['id'].dropna())
+                            for d_id in (orig_ids - new_ids):
+                                supabase.table("monthly_marketing_snapshots").delete().eq("id", d_id).execute()
+                            upsert_mm = []
+                            for _, row in edited_mm.iterrows():
+                                rec = {
+                                    "parent_company_id": str(comp_id),
+                                    "snapshot_month": str(row['snapshot_month']),
+                                    "ctr": row['ctr'] if pd.notna(row.get('ctr')) else None,
+                                    "cpc": row['cpc'] if pd.notna(row.get('cpc')) else None,
+                                    "impressions": int(row['impressions']) if pd.notna(row.get('impressions')) else None,
+                                    "social_growth_rate": row['social_growth_rate'] if pd.notna(row.get('social_growth_rate')) else None,
+                                    "followers": int(row['followers']) if pd.notna(row.get('followers')) else None,
+                                    "engagement_rate": row['engagement_rate'] if pd.notna(row.get('engagement_rate')) else None,
+                                    "sentiment_score": row['sentiment_score'] if pd.notna(row.get('sentiment_score')) else None,
+                                    "nps_pct": row['nps_pct'] if pd.notna(row.get('nps_pct')) else None,
+                                }
+                                if pd.notna(row.get('id')): rec['id'] = row['id']
+                                upsert_mm.append(rec)
+                            if upsert_mm:
+                                supabase.table("monthly_marketing_snapshots").upsert(upsert_mm).execute()
+                            st.success("✅ Matrix synced."); time.sleep(1); st.rerun()
+                        except Exception as e: st.error(f"Sync failed: {e}")
 
         # --- THE CORE SUITE ---
         current_tab_index = 1
