@@ -943,6 +943,77 @@ ENHANCED TOTAL IMPACT: ${curr_row['enhanced_revenue']:,.0f}"""
                                         st.success("Entries scored & vaulted.")
                                 except Exception as e: st.error("Verification failed.")
 
+                    # --- SENTIMENT PULSE & ASSET GAUGES ---
+                    st.divider()
+                    st.markdown("### 🏛️ Brand Sentiment Pulse")
+                    pulse_col, period_col = st.columns([3, 1])
+                    with period_col:
+                        from dateutil.relativedelta import relativedelta as _rd
+                        _today = date.today()
+                        _g_months = [(_today - _rd(months=i)).replace(day=1) for i in range(3)]
+                        _g_labels = ["Current (Live)"] + [m.strftime("%B %Y") for m in _g_months[1:]]
+                        sel_period = st.selectbox("Audit Period:", _g_labels, key="gauge_period_sel")
+
+                    overall_score = 0.0
+                    try:
+                        _base_q = supabase.table("sentiment_history").select("sentiment_score").eq("parent_company_id", comp_id)
+                        if sel_period == "Current (Live)":
+                            _g_res = _base_q.order("timestamp", desc=True).limit(50).execute()
+                        else:
+                            _sel_date = _g_months[_g_labels.index(sel_period)]
+                            _g_res = _base_q.gte("timestamp", _sel_date.strftime("%Y-%m-%d")).lte("timestamp", (_sel_date + _rd(months=1)).strftime("%Y-%m-%d")).execute()
+                        _g_data = safe_get_data(_g_res)
+                        if _g_data:
+                            _mapped = [(s['sentiment_score'] * 2 - 1) if 0 <= float(s['sentiment_score']) <= 1 else float(s['sentiment_score']) for s in _g_data]
+                            overall_score = float(np.mean(_mapped))
+                    except Exception: pass
+
+                    with pulse_col:
+                        _score_color = "#10B981" if overall_score > 0.3 else "#EF4444" if overall_score < -0.3 else "#F59E0B"
+                        st.markdown(f"<h2 style='margin:0; color:{_score_color};'>{overall_score:+.2f} <span style='font-size:1rem; color:#6B7280;'>Overall Property Pulse ({sel_period})</span></h2>", unsafe_allow_html=True)
+
+                    # Per-asset gauges derived from actual data
+                    try:
+                        _asset_res = supabase.table("sentiment_history").select("asset").eq("parent_company_id", comp_id).execute()
+                        _asset_data = safe_get_data(_asset_res)
+                        _assets = sorted(set(r['asset'] for r in _asset_data if r.get('asset'))) if _asset_data else tags
+                    except Exception:
+                        _assets = tags
+
+                    if _assets:
+                        gauge_cols = st.columns(min(len(_assets), 5))
+                        for i, asset_tag in enumerate(_assets[:5]):
+                            with gauge_cols[i]:
+                                _tag_score = 0.0
+                                try:
+                                    _tq = supabase.table("sentiment_history").select("sentiment_score").eq("parent_company_id", comp_id).eq("asset", asset_tag)
+                                    if sel_period == "Current (Live)":
+                                        _tr = _tq.order("timestamp", desc=True).limit(15).execute()
+                                    else:
+                                        _tr = _tq.gte("timestamp", _sel_date.strftime("%Y-%m-%d")).lte("timestamp", (_sel_date + _rd(months=1)).strftime("%Y-%m-%d")).execute()
+                                    _td = safe_get_data(_tr)
+                                    if _td:
+                                        _tag_score = float(np.mean([(s['sentiment_score'] * 2 - 1) if 0 <= float(s['sentiment_score']) <= 1 else float(s['sentiment_score']) for s in _td]))
+                                except Exception: pass
+                                fig_g = go.Figure(go.Indicator(
+                                    mode="gauge+number",
+                                    value=_tag_score,
+                                    number={'font': {'size': 18}, 'valueformat': ".2f"},
+                                    gauge={
+                                        'axis': {'range': [-1, 1]},
+                                        'bar': {'color': "#2563EB"},
+                                        'steps': [
+                                            {'range': [-1, -0.3], 'color': "#FEE2E2"},
+                                            {'range': [-0.3, 0.3], 'color': "#F1F5F9"},
+                                            {'range': [0.3, 1], 'color': "#D1FAE5"},
+                                        ]
+                                    }
+                                ))
+                                fig_g.update_layout(height=160, margin=dict(l=10, r=10, t=10, b=0), paper_bgcolor='rgba(0,0,0,0)')
+                                st.plotly_chart(fig_g, use_container_width=True, key=f"gauge_{asset_tag}_{i}")
+                                st.markdown(f"<p style='text-align:center; font-size:12px; color:#6B7280; margin-top:-10px;'>{asset_tag}</p>", unsafe_allow_html=True)
+
+                    st.divider()
                     s_res = supabase.table("sentiment_history").select("*").eq("parent_company_id", comp_id).order("timestamp", desc=True).execute()
                     s_data = safe_get_data(s_res)
                     if s_data:
